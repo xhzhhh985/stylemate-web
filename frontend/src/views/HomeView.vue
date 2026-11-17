@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import GarmentArt from '../components/GarmentArt.vue'
-import { matchesOutfit } from '../matchRules'
+import { matchesOutfit, parseTextTarget } from '../matchRules'
 
 type Page = 'home' | 'wardrobe' | 'match' | 'community' | 'profile'
 type Category = '上衣' | '下装' | '连衣裙' | '外套' | '鞋子' | '配饰'
@@ -40,6 +40,7 @@ const photoCategory = ref<Category>('上衣')
 const photoColor = ref('绿')
 const photoSeason = ref('春')
 const resultVisible = ref(false)
+const matchError = ref('')
 const liked = ref<number[]>([])
 const form = ref({ name: '', category: '上衣' as Category, color: '绿', season: '春', style: '休闲', imageUrl: '' })
 
@@ -67,13 +68,10 @@ type Target = { category: string; color: string; season: string; name: string }
 const recommendationTarget = computed<Target | null>(() => {
   if (mode.value === 'item') return selectedItem.value ?? null
   if (mode.value === 'photo') return photoName.value ? { name: photoName.value, category: photoCategory.value, color: photoColor.value, season: photoSeason.value } : null
-  const value = query.value.trim()
-  if (!value) return null
-  const category = categories.slice(1).find(word => value.includes(word)) ?? (value.includes('裤') ? '下装' : value.includes('裙') ? '连衣裙' : '')
-  const color = ['白', '黑', '绿', '蓝', '棕', '灰', '红'].find(word => value.includes(word)) ?? ''
-  const season = ['春', '夏', '秋', '冬'].find(word => value.includes(word)) ?? ''
-  return { name: value, category, color, season }
+  return parseTextTarget(query.value, categories.slice(1))
 })
+
+watch(query, () => { resultVisible.value = false; matchError.value = '' })
 
 const outfits = computed(() => [
   { id: 1, title: '春日轻通勤', scene: '上班 · 春季', season: '春', itemIds: [1, 2, 4, 6] },
@@ -115,7 +113,14 @@ function useForMatch(item: Garment) {
   navigate('match')
 }
 function runMatch() {
-  if (!recommendationTarget.value) return notify('请先提供一件想搭配的衣物')
+  if (!recommendationTarget.value) {
+    resultVisible.value = false
+    matchError.value = mode.value === 'text'
+      ? (query.value.trim() ? '没有识别出衣物信息，请输入品类、颜色或季节，例如“春季绿色上衣”。' : '请先输入想搭配的衣物。')
+      : '请先提供一件想搭配的衣物。'
+    return
+  }
+  matchError.value = ''
   resultVisible.value = true
 }
 function choosePhoto(event: Event) {
@@ -173,7 +178,7 @@ function toggleLike(id: number) {
           <div class="eyebrow">FIND YOUR LOOK · 穿搭从这里开始</div><div class="page-heading"><div><h1>智能搭配<span class="heading-spark">✳</span></h1><p>选择一个起点，看看衣橱里有哪些整套搭配与你呼应。</p></div></div>
           <div class="match-layout"><section class="match-panel"><div class="panel-heading"><span class="step-number">01</span><div><h2>从哪里开始？</h2><p>任选一种方式描述你想搭配的衣物</p></div></div><div class="mode-grid"><button type="button" :class="['mode-card', { selected: mode === 'item' }]" @click="mode = 'item'; resultVisible = false"><span>▦</span><strong>我的衣物</strong><small>从衣橱里选一件</small></button><button type="button" :class="['mode-card', { selected: mode === 'text' }]" @click="mode = 'text'; resultVisible = false"><span>⌕</span><strong>文字搜索</strong><small>描述颜色与品类</small></button><button type="button" :class="['mode-card', { selected: mode === 'photo' }]" @click="mode = 'photo'; resultVisible = false"><span>▧</span><strong>商品图片</strong><small>上传临时参考图</small></button></div>
             <div class="match-input" v-if="mode === 'item'"><span class="field-label">从衣橱中选择一件衣物</span><div v-if="items.length" class="match-wardrobe-grid" role="group" aria-label="选择要搭配的衣物"><button v-for="item in items" :key="item.id" type="button" :class="['match-garment', { selected: targetId === item.id }]" :aria-pressed="targetId === item.id" @click="targetId = item.id; resultVisible = false"><span class="match-garment-image" :style="{ background: item.surface }"><img v-if="item.imageUrl" class="garment-photo" :src="item.imageUrl" :alt="item.name" /><GarmentArt v-else :category="item.category" :color="item.tone" compact /></span><strong>{{ item.name }}</strong><small>{{ item.category }} · {{ item.color }} · {{ item.season }}</small><span class="match-check" aria-hidden="true">✓</span></button></div><p v-else>衣橱还是空的，请先去“我的衣橱”录入一件衣物。</p><p>选中后，会用它的品类、颜色和季节标签寻找搭配组合。</p></div>
-            <div class="match-input" v-else-if="mode === 'text'"><label for="match-query">描述你想搭配的衣服</label><input id="match-query" v-model="query" placeholder="例如：春季绿色上衣" /><p>演示版识别品类、颜色和季节关键词。</p></div>
+            <div class="match-input" v-else-if="mode === 'text'"><label for="match-query">描述你想搭配的衣服</label><input id="match-query" v-model="query" :aria-invalid="Boolean(matchError)" aria-describedby="match-query-help" placeholder="例如：春季绿色上衣" /><p id="match-query-help">演示版识别品类、颜色和季节关键词。</p><p v-if="matchError" class="match-error" role="alert">{{ matchError }}</p></div>
             <div class="match-input" v-else><label class="upload-zone"><span>↑</span><strong>{{ photoName || '选择一张商品图片' }}</strong><small>演示版仅使用下方手选标签匹配，不会分析或上传图片</small><input type="file" accept="image/*" @change="choosePhoto" /></label><div class="tag-fields"><label>品类<select v-model="photoCategory"><option v-for="category in categories.slice(1)" :key="category">{{ category }}</option></select></label><label>颜色<select v-model="photoColor"><option v-for="color in Object.keys(colorTones)" :key="color">{{ color }}</option></select></label><label>季节<select v-model="photoSeason"><option v-for="season in ['春', '夏', '秋', '冬', '四季']" :key="season">{{ season }}</option></select></label></div></div>
             <button class="primary-button match-submit" type="button" @click="runMatch">看看推荐搭配 <span>→</span></button></section>
             <aside class="match-aside"><span class="aside-star">✦</span><span class="eyebrow">HOW IT WORKS</span><h3>推荐有依据，<br />搭配更安心。</h3><p>先按品类、颜色、季节筛选，再展示符合条件的整套搭配。风格作为参考，不代替你的选择。</p><div class="rule-list"><span>01 <strong>选择目标衣物</strong></span><span>02 <strong>核对衣物标签</strong></span><span>03 <strong>查看完整搭配</strong></span></div></aside></div>
