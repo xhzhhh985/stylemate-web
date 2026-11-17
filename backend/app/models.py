@@ -19,6 +19,7 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
 
     profile: Mapped["UserProfile"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
+    community_outfits: Mapped[list["CommunityOutfit"]] = relationship(back_populates="user")
 
 
 class UserProfile(Base):
@@ -36,3 +37,21 @@ class UserProfile(Base):
     preferred_styles: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
 
     user: Mapped[User] = relationship(back_populates="profile")
+
+
+class CommunityOutfit(Base):
+    __tablename__ = "community_outfits"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(50), nullable=False)
+    scene: Mapped[str] = mapped_column(String(30), nullable=False)
+    season: Mapped[str] = mapped_column(String(10), nullable=False)
+    color: Mapped[str | None] = mapped_column(String(20))
+    style: Mapped[str | None] = mapped_column(String(30))
+    description: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    image_url: Mapped[str | None] = mapped_column(String(500))
+    garments: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.current_timestamp())
+
+    user: Mapped[User] = relationship(back_populates="community_outfits")

@@ -30,7 +30,7 @@ class UserMigrationTest(unittest.TestCase):
             engine = create_engine(database_url)
             try:
                 tables = set(inspect(engine).get_table_names())
-                self.assertTrue({"users", "user_profiles", "alembic_version"} <= tables)
+                self.assertTrue({"users", "user_profiles", "community_outfits", "alembic_version"} <= tables)
                 columns = {column["name"] for column in inspect(engine).get_columns("users")}
                 self.assertIn("password_hash", columns)
                 self.assertNotIn("password", columns)
