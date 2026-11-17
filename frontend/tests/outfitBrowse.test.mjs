@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { publishedOutfits, searchOutfits, toggleComparedOutfit } from '../src/outfitBrowse.ts'
+import { comparisonCandidates, publishedOutfits, searchOutfits } from '../src/outfitBrowse.ts'
 
 const outfits = [
   { title: '森林通勤', scene: '上班', season: '秋', color: '绿', style: '通勤', description: '绿色外套配米白裤', author: '小林', garments: [{ name: '薄荷绿外套', category: '外套', color: '绿', season: '秋', style: '通勤' }] },
@@ -14,10 +14,8 @@ test('社区关键词支持部分名称、颜色和多个词', () => {
   assert.deepEqual(searchOutfits(outfits, '你好'), [])
 })
 
-test('对比最多选择两套，再点已选项可取消', () => {
-  assert.deepEqual(toggleComparedOutfit([1], 2), [1, 2])
-  assert.deepEqual(toggleComparedOutfit([1, 2], 3), [1, 2])
-  assert.deepEqual(toggleComparedOutfit([1, 2], 1), [2])
+test('右侧候选不包含左侧穿搭', () => {
+  assert.deepEqual(comparisonCandidates([{ id: 1 }, { id: 2 }, { id: 3 }], 2), [{ id: 1 }, { id: 3 }])
 })
 
 test('私人穿搭不会进入社区列表', () => {

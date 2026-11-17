@@ -26,7 +26,6 @@ export function publishedOutfits<T extends { published: boolean }>(outfits: read
   return outfits.filter(outfit => outfit.published)
 }
 
-export function toggleComparedOutfit(ids: readonly number[], id: number): number[] {
-  if (ids.includes(id)) return ids.filter(selectedId => selectedId !== id)
-  return ids.length < 2 ? [...ids, id] : [...ids]
+export function comparisonCandidates<T extends { id: number }>(outfits: readonly T[], baseId: number): T[] {
+  return outfits.filter(outfit => outfit.id !== baseId)
 }
