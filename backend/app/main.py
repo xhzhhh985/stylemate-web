@@ -1,9 +1,12 @@
 from fastapi import FastAPI
 
+from app.auth import router as auth_router
+
 app = FastAPI(
     title="StyleMate API",
     version="0.1.0",
 )
+app.include_router(auth_router)
 
 
 @app.get("/api/v1/health", tags=["health"])

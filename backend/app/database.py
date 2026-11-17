@@ -4,6 +4,10 @@ from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from dotenv import load_dotenv
+
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 
 DATABASE_FILE = Path(__file__).resolve().parent.parent / "stylemate.db"
