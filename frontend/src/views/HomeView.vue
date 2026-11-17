@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import GarmentArt from '../components/GarmentArt.vue'
 import { matchesOutfit, parseTextTarget } from '../matchRules'
+import { publishedOutfits, searchOutfits, toggleComparedOutfit } from '../outfitBrowse'
 
 type Page = 'home' | 'wardrobe' | 'match' | 'community' | 'profile'
 type Category = '上衣' | '下装' | '连衣裙' | '外套' | '鞋子' | '配饰'
@@ -36,9 +37,19 @@ function initialOutfits(): Outfit[] {
   }
 }
 
+function initialDisplayName(): string {
+  try { return localStorage.getItem('stylemate-demo-display-name')?.trim() || '演示访客' }
+  catch { return '演示访客' }
+}
+
 const page = ref<Page>('home')
 const items = ref<Garment[]>(initialItems())
 const savedOutfits = ref<Outfit[]>(initialOutfits())
+const displayName = ref(initialDisplayName())
+const nameDraft = ref(displayName.value)
+const browseTab = ref<'mine' | 'community'>('community')
+const communitySearch = ref('')
+const comparedIds = ref<number[]>([])
 const categoryFilter = ref('全部')
 const search = ref('')
 const showAdd = ref(false)
@@ -93,15 +104,30 @@ watch(query, () => { resultVisible.value = false; matchError.value = '' })
 
 const outfits = computed<Outfit[]>(() => {
   const presets: Outfit[] = [
-    { id: 1, title: '春日轻通勤', scene: '上班', season: '春', description: '薄荷绿与米白色的清爽组合。', author: '演示搭配', itemIds: [1, 2, 4, 6], published: true, demo: true },
-    { id: 2, title: '周末漫游', scene: '出游', season: '春', description: '牛仔外套与浅色裤装，适合轻松出行。', author: '演示搭配', itemIds: [1, 2, 3], published: true, demo: true },
-    { id: 3, title: '清爽夏日', scene: '约会', season: '夏', description: '奶油白连衣裙和森林绿托特包。', author: '演示搭配', itemIds: [5, 4, 6], published: true, demo: true },
+    { id: 1, title: '春日轻通勤', scene: '上班', season: '春', description: '薄荷绿与米白色的清爽组合。', author: '小橙（示例）', itemIds: [1, 2, 4, 6], published: true, demo: true },
+    { id: 2, title: '周末漫游', scene: '出游', season: '春', description: '牛仔外套与浅色裤装，适合轻松出行。', author: '林间风（示例）', itemIds: [1, 2, 3], published: true, demo: true },
+    { id: 3, title: '清爽夏日', scene: '约会', season: '夏', description: '奶油白连衣裙和森林绿托特包。', author: '米粒（示例）', itemIds: [5, 4, 6], published: true, demo: true },
   ].map(({ itemIds, ...outfit }) => ({ ...outfit, garments: itemIds.map(id => items.value.find(item => item.id === id)).filter((item): item is Garment => Boolean(item)) }))
   return [...savedOutfits.value, ...presets.filter(outfit => outfit.garments.length > 0)]
 })
-const communityOutfits = computed(() => outfits.value.filter(outfit => outfit.published))
+const communityOutfits = computed(() => publishedOutfits(outfits.value))
+const browsedOutfits = computed(() => searchOutfits(browseTab.value === 'mine' ? savedOutfits.value : communityOutfits.value, communitySearch.value))
+const comparedOutfits = computed(() => comparedIds.value.map(id => outfits.value.find(outfit => outfit.id === id)).filter((outfit): outfit is Outfit => Boolean(outfit)))
 const activeOutfit = computed(() => outfits.value.find(outfit => outfit.id === activeOutfitId.value) ?? null)
 function seasonLabel(season: string) { return season === '四季' ? season : `${season}季` }
+function selectForCompare(id: number) {
+  if (!comparedIds.value.includes(id) && comparedIds.value.length === 2) return notify('对比最多选择两套穿搭，请先取消一套')
+  comparedIds.value = toggleComparedOutfit(comparedIds.value, id)
+}
+function saveDisplayName() {
+  const value = nameDraft.value.trim()
+  if (!value) return notify('请填写昵称')
+  displayName.value = value
+  try { localStorage.setItem('stylemate-demo-display-name', value) }
+  catch { return notify('浏览器存储空间不足，昵称刷新后可能丢失') }
+  savedOutfits.value.forEach(outfit => { outfit.author = value })
+  notify('昵称已保存；本机发布的穿搭将显示这个昵称')
+}
 const recommendedOutfits = computed(() => {
   const target = recommendationTarget.value
   if (!target) return []
@@ -142,7 +168,7 @@ function addOutfit() {
   if (outfitForm.value.itemIds.length < 2 && !outfitForm.value.imageUrl) return notify('请上传整套照片，或选择至少两件衣物')
   const garments = outfitForm.value.itemIds.map(id => items.value.find(item => item.id === id)).filter((item): item is Garment => Boolean(item))
   if (outfitForm.value.itemIds.length && garments.length !== outfitForm.value.itemIds.length) return notify('选择的衣物已不存在，请重新选择')
-  savedOutfits.value.unshift({ id: Date.now(), title, scene: outfitForm.value.scene.trim() || '日常', season: outfitForm.value.season, color: outfitForm.value.color, style: outfitForm.value.style, description: outfitForm.value.description.trim(), imageUrl: outfitForm.value.imageUrl, author: '演示访客', garments: garments.map(item => ({ ...item })), published: outfitForm.value.published })
+  savedOutfits.value.unshift({ id: Date.now(), title, scene: outfitForm.value.scene.trim() || '日常', season: outfitForm.value.season, color: outfitForm.value.color, style: outfitForm.value.style, description: outfitForm.value.description.trim(), imageUrl: outfitForm.value.imageUrl, author: displayName.value, garments: garments.map(item => ({ ...item })), published: outfitForm.value.published })
   outfitForm.value = { title: '', scene: '', season: '春', color: '绿', style: '休闲', description: '', imageUrl: '', itemIds: [], published: false }
   showAddOutfit.value = false
   notify('整套穿搭已保存到当前浏览器')
@@ -159,6 +185,7 @@ function chooseOutfitPhoto(event: Event) {
 function publishOutfit(outfit: Outfit) {
   const saved = savedOutfits.value.find(entry => entry.id === outfit.id)
   if (!saved) return
+  saved.author = displayName.value
   saved.published = true
   notify('已发布到本机演示社区；跨用户分享需要后端服务')
 }
@@ -209,7 +236,7 @@ function toggleLike(id: number) {
     </aside>
 
     <div class="main-column">
-      <header class="topbar"><div class="mobile-brand">StyleMate <span>衣搭智选</span></div><div class="breadcrumb">我的空间 <span>/</span> {{ navigation.find(link => link.id === page)?.label }}</div><div class="top-actions"><span class="demo-pill"><span></span> 演示版本</span><button class="avatar" type="button" aria-label="查看我的资料" @click="navigate('profile')">我</button></div></header>
+      <header class="topbar"><div class="mobile-brand">StyleMate <span>衣搭智选</span></div><div class="breadcrumb">我的空间 <span>/</span> {{ navigation.find(link => link.id === page)?.label }}</div><div class="top-actions"><span class="demo-pill"><span></span> 演示版本</span><button class="avatar" type="button" aria-label="查看我的资料" @click="navigate('profile')">{{ displayName[0] }}</button></div></header>
 
       <main class="content">
         <template v-if="page === 'home'">
@@ -244,13 +271,19 @@ function toggleLike(id: number) {
         </template>
 
         <template v-else-if="page === 'community'">
-          <div class="eyebrow">STYLE COMMUNITY · 整套穿搭</div><div class="page-heading"><div><h1>穿搭社区<span class="heading-spark">✳</span></h1><p>打开一套穿搭，可以查看整套照片和已标注衣物的信息。</p></div><button class="outline-button" type="button" @click="outfitForm.published = true; showAddOutfit = true">＋ 发布穿搭</button></div>
-          <div class="community-grid"><article v-for="outfit in communityOutfits" :key="outfit.id" class="post-card"><button class="post-open" type="button" @click="activeOutfitId = outfit.id"><div class="post-outfit-images"><img v-if="outfit.imageUrl" class="outfit-cover-photo" :src="outfit.imageUrl" :alt="outfit.title" /><template v-else><div v-for="item in outfit.garments.slice(0, 3)" :key="item.id" :style="{ background: item.surface }"><img v-if="item.imageUrl" class="garment-photo" :src="item.imageUrl" :alt="item.name" /><GarmentArt v-else :category="item.category" :color="item.tone" compact /></div></template></div><div class="post-body"><div class="post-author"><span class="author-avatar">{{ outfit.author[0] }}</span><div><strong>{{ outfit.author }}</strong><small>{{ outfit.demo ? '示例穿搭' : '本机发布' }}</small></div></div><h2>{{ outfit.title }}</h2><p>{{ outfit.description || '查看这套穿搭的全部衣物与标签。' }}</p><div class="post-tags"><span># {{ outfit.scene }}</span><span># {{ seasonLabel(outfit.season) }}</span><span># {{ outfit.garments.length ? `${outfit.garments.length}件衣物` : '整套照片' }}</span></div><span class="outfit-link">查看完整穿搭 →</span></div></button><button type="button" :class="['like-button', { liked: liked.includes(outfit.id) }]" :aria-label="liked.includes(outfit.id) ? '取消点赞' : '点赞'" @click="toggleLike(outfit.id)">{{ liked.includes(outfit.id) ? '♥' : '♡' }} {{ liked.includes(outfit.id) ? 1 : 0 }}</button></article></div><p class="demo-disclaimer">目前发布内容只保存在当前浏览器，其他用户还看不到；跨用户共享会在账号和社区后端接入后实现。</p>
+          <div class="eyebrow">STYLE COMMUNITY · 整套穿搭</div>
+          <div class="page-heading"><div><h1>穿搭广场<span class="heading-spark">✳</span></h1><p>我的穿搭与社区穿搭分开展示；可检索、查看详情和对比。</p></div><button class="outline-button" type="button" @click="outfitForm.published = true; showAddOutfit = true">＋ 发布穿搭</button></div>
+          <div class="browse-toolbar"><div class="browse-tabs" role="tablist" aria-label="穿搭分类"><button type="button" role="tab" :aria-selected="browseTab === 'mine'" :class="{ active: browseTab === 'mine' }" @click="browseTab = 'mine'">我的穿搭 <span>{{ savedOutfits.length }}</span></button><button type="button" role="tab" :aria-selected="browseTab === 'community'" :class="{ active: browseTab === 'community' }" @click="browseTab = 'community'">社区穿搭 <span>{{ communityOutfits.length }}</span></button></div><label class="search-box browse-search"><span>⌕</span><input v-model="communitySearch" :placeholder="browseTab === 'mine' ? '搜索我的穿搭' : '搜索社区穿搭，如：绿、通勤'" aria-label="搜索穿搭关键词" /></label></div>
+          <p class="browse-help">关键词可匹配名称、颜色、场景、季节、风格、说明和衣物信息。选两套可并排对比。</p>
+          <div v-if="browsedOutfits.length" class="community-grid"><article v-for="outfit in browsedOutfits" :key="outfit.id" class="post-card"><button class="post-open" type="button" @click="activeOutfitId = outfit.id"><div class="post-outfit-images"><img v-if="outfit.imageUrl" class="outfit-cover-photo" :src="outfit.imageUrl" :alt="outfit.title" /><template v-else><div v-for="item in outfit.garments.slice(0, 3)" :key="item.id" :style="{ background: item.surface }"><img v-if="item.imageUrl" class="garment-photo" :src="item.imageUrl" :alt="item.name" /><GarmentArt v-else :category="item.category" :color="item.tone" compact /></div></template></div><div class="post-body"><div class="post-author"><span class="author-avatar">{{ outfit.author[0] }}</span><div><strong>{{ outfit.author }}</strong><small>{{ outfit.demo ? '示例用户' : outfit.published ? '本机发布' : '仅自己可见' }}</small></div></div><h2>{{ outfit.title }}</h2><p>{{ outfit.description || '打开查看整套穿搭与衣物标签。' }}</p><div class="post-tags"><span># {{ outfit.scene }}</span><span># {{ seasonLabel(outfit.season) }}</span><span># {{ outfit.color || '未标主色' }}</span></div><span class="outfit-link">查看完整穿搭 →</span></div></button><div class="post-actions"><button type="button" :class="['compare-button', { selected: comparedIds.includes(outfit.id) }]" :aria-pressed="comparedIds.includes(outfit.id)" @click="selectForCompare(outfit.id)">{{ comparedIds.includes(outfit.id) ? '✓ 已选对比' : '＋ 加入对比' }}</button><button v-if="browseTab === 'community'" type="button" :class="['like-button', { liked: liked.includes(outfit.id) }]" :aria-label="liked.includes(outfit.id) ? '取消点赞' : '点赞'" @click="toggleLike(outfit.id)">{{ liked.includes(outfit.id) ? '♥' : '♡' }} {{ liked.includes(outfit.id) ? 1 : 0 }}</button></div></article></div>
+          <div v-else class="empty-state"><span>⌕</span><h3>没有找到相关穿搭</h3><p>{{ communitySearch.trim() ? '试试颜色、季节或场景的其他关键词。' : browseTab === 'mine' ? '先录入一套自己的穿搭。' : '社区暂无穿搭。' }}</p></div>
+          <section v-if="comparedOutfits.length" class="compare-panel"><div class="section-heading"><div><span class="eyebrow">COMPARE LOOKS</span><h2>穿搭对比 · 已选 {{ comparedOutfits.length }}/2</h2></div><button type="button" class="text-button" @click="comparedIds = []">清空对比</button></div><p v-if="comparedOutfits.length < 2" class="browse-help">再选择一套穿搭，就能并排比较。</p><div class="compare-grid"><article v-for="outfit in comparedOutfits" :key="outfit.id" class="compare-card"><img v-if="outfit.imageUrl" class="compare-cover" :src="outfit.imageUrl" :alt="outfit.title" /><div v-else class="compare-cover compare-art"><div v-for="item in outfit.garments.slice(0, 3)" :key="item.id" :style="{ background: item.surface }"><img v-if="item.imageUrl" class="garment-photo" :src="item.imageUrl" :alt="item.name" /><GarmentArt v-else :category="item.category" :color="item.tone" compact /></div></div><h3>{{ outfit.title }}</h3><dl><div><dt>发布者</dt><dd>{{ outfit.author }}</dd></div><div><dt>季节</dt><dd>{{ seasonLabel(outfit.season) }}</dd></div><div><dt>场景</dt><dd>{{ outfit.scene }}</dd></div><div><dt>风格</dt><dd>{{ outfit.style || '未标注' }}</dd></div><div><dt>主色调</dt><dd>{{ outfit.color || '未标注' }}</dd></div><div><dt>衣物</dt><dd>{{ outfit.garments.length ? outfit.garments.map(item => item.name).join('、') : '仅整套照片' }}</dd></div></dl><button type="button" class="text-button" @click="activeOutfitId = outfit.id">查看详情 →</button></article></div></section>
+          <p class="demo-disclaimer">演示版“社区穿搭”包含示例用户和本机发布内容；其他真实用户暂时看不到本机发布内容，跨用户共享需接入后端账号与存储。</p>
         </template>
 
         <template v-else>
           <div class="eyebrow">MY PROFILE · 只属于你的空间</div><div class="page-heading"><div><h1>我的资料<span class="heading-spark">✳</span></h1><p>了解你的喜好，为日常穿搭留下更多灵感。</p></div></div>
-          <div class="profile-layout"><section class="profile-card"><div class="profile-cover"><span>STYLEMATE / PERSONAL SPACE</span><i>✳</i></div><div class="profile-identity"><div class="profile-avatar">我</div><div><h2>演示访客</h2><p>正在预览 StyleMate Web</p></div><span class="private-badge">私人空间</span></div><div class="profile-details"><div><span>昵称</span><strong>演示访客</strong></div><div><span>偏好风格</span><strong>休闲 · 通勤 · 简约</strong></div><div><span>身高 / 体重</span><strong>仅本人可见</strong></div></div><button class="outline-button" type="button" @click="notify('资料编辑将在账号系统接入后开放')">编辑个人资料 <span>→</span></button></section><aside class="privacy-card"><span>✦ PRIVACY FIRST</span><h3>你的资料，<br />由你决定分享多少。</h3><p>正式版本中，身高和体重只用于你的私人资料页，不会出现在社区帖子或公开搜索结果中。</p><div class="privacy-line"><span>✓</span> 社区只显示昵称和头像</div><div class="privacy-line"><span>✓</span> 私人衣物默认不公开</div></aside></div>
+          <div class="profile-layout"><section class="profile-card"><div class="profile-cover"><span>STYLEMATE / PERSONAL SPACE</span><i>✳</i></div><div class="profile-identity"><div class="profile-avatar">{{ displayName[0] }}</div><div><h2>{{ displayName }}</h2><p>本机演示用户</p></div><span class="private-badge">私人空间</span></div><div class="profile-details"><div><span>昵称</span><strong>{{ displayName }}</strong></div><div><span>偏好风格</span><strong>休闲 · 通勤 · 简约</strong></div><div><span>身高 / 体重</span><strong>仅本人可见</strong></div></div><form class="profile-name-form" @submit.prevent="saveDisplayName"><label for="display-name">设置社区显示昵称</label><div><input id="display-name" v-model="nameDraft" maxlength="30" placeholder="输入昵称" /><button class="outline-button" type="submit">保存昵称</button></div><small>发布穿搭时显示昵称；目前只保存在当前浏览器。</small></form></section><aside class="privacy-card"><span>✦ PRIVACY FIRST</span><h3>你的资料，<br />由你决定分享多少。</h3><p>目前没有账号登录。社区展示的是演示用户及本机发布的穿搭；跨用户访问将在后端接入后实现。</p><div class="privacy-line"><span>✓</span> 社区显示昵称</div><div class="privacy-line"><span>✓</span> 私人穿搭不会出现在社区标签</div></aside></div>
         </template>
       </main>
       <footer class="site-footer"><span>© StyleMate 衣搭智选 · 页面体验 Demo</span><span>用你的衣橱，搭出自己的故事 ✦</span></footer>
