@@ -2,10 +2,11 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import GarmentArt from '../components/GarmentArt.vue'
 import { matchesOutfit, parseTextTarget } from '../matchRules'
-import { comparisonCandidates, publishedOutfits, searchOutfits } from '../outfitBrowse'
+import { comparisonCandidates, filterComparisonCandidates, publishedOutfits, searchOutfits } from '../outfitBrowse'
 import { AuthApiError, getMe, login, logout, register, updateNickname, type AuthUser } from '../authApi'
 import { createCommunityPost, listCommunityPosts, type CommunityPost } from '../communityApi'
 import { recommendFromWardrobe } from '../wardrobeRecommendations'
+import { addNewDemoItems, demoItems, demoOutfits } from '../demoData'
 
 type Page = 'home' | 'wardrobe' | 'match' | 'community' | 'profile' | 'compare'
 type Category = '上衣' | '下装' | '连衣裙' | '外套' | '鞋子' | '配饰'
@@ -13,24 +14,25 @@ type Garment = { id: number; name: string; category: Category; color: string; se
 type Mode = 'item' | 'text' | 'photo'
 type Outfit = { id: number; title: string; scene: string; season: string; color?: string; style?: string; description: string; imageUrl?: string; author: string; garments: Garment[]; published: boolean; demo?: boolean; generated?: boolean; serverId?: number; ownerId?: number }
 
-const starterItems: Garment[] = [
-  { id: 1, name: '薄荷绿针织上衣', category: '上衣', color: '绿', season: '春', style: '休闲', tone: '#7ba993', surface: '#e3ede5' },
-  { id: 2, name: '米白色直筒裤', category: '下装', color: '白', season: '春', style: '通勤', tone: '#e8dfcb', surface: '#f1e9da' },
-  { id: 3, name: '深蓝色牛仔外套', category: '外套', color: '蓝', season: '春', style: '休闲', tone: '#54758b', surface: '#dbe5ea' },
-  { id: 4, name: '焦糖色乐福鞋', category: '鞋子', color: '棕', season: '春', style: '通勤', tone: '#a87a59', surface: '#ece2d7' },
-  { id: 5, name: '奶油白连衣裙', category: '连衣裙', color: '白', season: '夏', style: '简约', tone: '#e5dfd0', surface: '#eee9dc' },
-  { id: 6, name: '森林绿托特包', category: '配饰', color: '绿', season: '四季', style: '通勤', tone: '#577f69', surface: '#dce7dc' },
-]
-
 function wardrobeKey(scope: string): string { return scope === 'guest' ? 'stylemate-demo-wardrobe-v1' : `stylemate-demo-wardrobe-v1:${scope}` }
 function outfitsKey(scope: string): string { return scope === 'guest' ? 'stylemate-demo-outfits-v1' : `stylemate-demo-outfits-v1:${scope}` }
+function demoSeedKey(scope: string): string { return `stylemate-demo-seed-v2:${scope}` }
 
 function initialItems(scope = 'guest'): Garment[] {
   try {
     const saved = localStorage.getItem(wardrobeKey(scope))
-    return saved ? (JSON.parse(saved) as Garment[]) : starterItems
+    if (!saved) {
+      localStorage.setItem(demoSeedKey(scope), '1')
+      return demoItems
+    }
+    const existing = JSON.parse(saved) as Garment[]
+    if (localStorage.getItem(demoSeedKey(scope))) return existing
+    const merged = addNewDemoItems(existing, demoItems)
+    localStorage.setItem(wardrobeKey(scope), JSON.stringify(merged))
+    localStorage.setItem(demoSeedKey(scope), '1')
+    return merged
   } catch {
-    return starterItems
+    return demoItems
   }
 }
 
@@ -69,6 +71,14 @@ const browseTab = ref<'mine' | 'community'>('community')
 const communitySearch = ref('')
 const compareBaseId = ref<number | null>(null)
 const compareCandidateId = ref(0)
+const compareSource = ref<'all' | 'mine' | 'community' | 'generated'>('all')
+const compareSources: { value: 'all' | 'mine' | 'community' | 'generated'; label: string }[] = [
+  { value: 'all', label: '全部' }, { value: 'mine', label: '我的' },
+  { value: 'community', label: '社区' }, { value: 'generated', label: '自动组合' },
+]
+const compareSeason = ref('全部')
+const compareGarmentCategory = ref('全部')
+const compareQuery = ref('')
 const compareReturnPage = ref<Page>('community')
 const categoryFilter = ref('全部')
 const search = ref('')
@@ -206,12 +216,11 @@ const recommendationTarget = computed<Target | null>(() => {
 watch(query, () => { resultVisible.value = false; matchError.value = '' })
 
 const outfits = computed<Outfit[]>(() => {
-  const presets: Outfit[] = [
-    { id: 1, title: '春日轻通勤', scene: '上班', season: '春', description: '薄荷绿与米白色的清爽组合。', author: '小橙（示例）', itemIds: [1, 2, 4, 6], published: true, demo: true },
-    { id: 2, title: '周末漫游', scene: '出游', season: '春', description: '牛仔外套与浅色裤装，适合轻松出行。', author: '林间风（示例）', itemIds: [1, 2, 3], published: true, demo: true },
-    { id: 3, title: '清爽夏日', scene: '约会', season: '夏', description: '奶油白连衣裙和森林绿托特包。', author: '米粒（示例）', itemIds: [5, 4, 6], published: true, demo: true },
-  ].map(({ itemIds, ...outfit }) => ({ ...outfit, garments: itemIds.map(id => items.value.find(item => item.id === id)).filter((item): item is Garment => Boolean(item)) }))
-  return [...savedOutfits.value, ...remoteOutfits.value, ...presets.filter(outfit => outfit.garments.length > 0)]
+  const presets: Outfit[] = demoOutfits.flatMap(({ itemIds, ...outfit }) => {
+    const garments = itemIds.map(id => demoItems.find(item => item.id === id)).filter((item): item is Garment => Boolean(item))
+    return garments.length === itemIds.length ? [{ ...outfit, published: true, demo: true, garments }] : []
+  })
+  return [...savedOutfits.value, ...remoteOutfits.value, ...presets]
 })
 const generatedOutfits = computed<Outfit[]>(() => {
   const target = recommendationTarget.value
@@ -246,12 +255,19 @@ const browsedOutfits = computed(() => searchOutfits(browseTab.value === 'mine' ?
 const compareBase = computed(() => displayOutfits.value.find(outfit => outfit.id === compareBaseId.value) ?? null)
 const compareCandidate = computed(() => displayOutfits.value.find(outfit => outfit.id === compareCandidateId.value) ?? null)
 const compareChoices = computed(() => comparisonCandidates(displayOutfits.value, compareBaseId.value ?? 0))
+const filteredCompareChoices = computed(() => filterComparisonCandidates(compareChoices.value, myOutfits.value.map(outfit => outfit.id), {
+  source: compareSource.value, season: compareSeason.value, garmentCategory: compareGarmentCategory.value, query: compareQuery.value,
+}))
 const comparisonSlots = computed(() => [compareBase.value, compareCandidate.value])
 function seasonLabel(season: string) { return season === '四季' ? season : `${season}季` }
 function openComparison(outfit: Outfit) {
   compareReturnPage.value = page.value === 'compare' ? compareReturnPage.value : page.value
   compareBaseId.value = outfit.id
   compareCandidateId.value = 0
+  compareSource.value = 'all'
+  compareSeason.value = '全部'
+  compareGarmentCategory.value = '全部'
+  compareQuery.value = ''
   page.value = 'compare'
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
@@ -450,7 +466,18 @@ function toggleLike(id: number) {
           <div class="eyebrow">LOOK COMPARISON · 穿搭对比</div>
           <div class="page-heading"><div><h1>两套穿搭，一眼看清<span class="heading-spark">✳</span></h1><p>左侧固定当前穿搭，右侧选择另一套比较图片、标签与单品。</p></div></div>
           <div v-if="compareBase">
-            <div class="comparison-controls"><div class="comparison-fixed"><span>左侧固定穿搭</span><strong>{{ compareBase.title }}</strong></div><label class="comparison-select">右侧选择对比穿搭<select v-model.number="compareCandidateId"><option :value="0">请选择一套穿搭</option><option v-for="choice in compareChoices" :key="choice.id" :value="choice.id">{{ choice.title }} · {{ choice.author }}</option></select></label></div>
+            <div class="comparison-controls">
+              <div class="comparison-fixed"><span>左侧固定穿搭</span><strong>{{ compareBase.title }}</strong></div>
+              <div class="comparison-picker">
+                <label class="comparison-search">搜索右侧穿搭<input v-model="compareQuery" placeholder="输入名称、颜色、场景或作者" /></label>
+                <div class="comparison-filter" role="group" aria-label="穿搭来源"><span>来源</span><button v-for="source in compareSources" :key="source.value" type="button" :class="{ active: compareSource === source.value }" :aria-pressed="compareSource === source.value" @click="compareSource = source.value">{{ source.label }}</button></div>
+                <div class="comparison-filter" role="group" aria-label="季节筛选"><span>季节</span><button v-for="season in ['全部', '春', '夏', '秋', '冬']" :key="season" type="button" :class="{ active: compareSeason === season }" :aria-pressed="compareSeason === season" @click="compareSeason = season">{{ season }}</button></div>
+                <div class="comparison-filter" role="group" aria-label="衣物品类筛选"><span>品类</span><button v-for="category in categories" :key="category" type="button" :class="{ active: compareGarmentCategory === category }" :aria-pressed="compareGarmentCategory === category" @click="compareGarmentCategory = category">{{ category }}</button></div>
+                <p class="comparison-count">找到 {{ filteredCompareChoices.length }} 套 · 点击卡片放到右侧</p>
+                <div v-if="filteredCompareChoices.length" class="comparison-options"><button v-for="choice in filteredCompareChoices" :key="choice.id" type="button" :class="['comparison-option', { selected: compareCandidateId === choice.id }]" :aria-pressed="compareCandidateId === choice.id" @click="compareCandidateId = choice.id"><span class="comparison-option-thumb"><img v-if="choice.imageUrl" :src="choice.imageUrl" :alt="choice.title" /><GarmentArt v-else-if="choice.garments[0]" :category="choice.garments[0].category" :color="choice.garments[0].tone" compact /><span v-else>✦</span></span><span class="comparison-option-info"><strong>{{ choice.title }}</strong><small>{{ seasonLabel(choice.season) }} · {{ choice.scene }} · {{ choice.author }}</small></span><span class="comparison-option-check">{{ compareCandidateId === choice.id ? '✓' : '→' }}</span></button></div>
+                <p v-else class="comparison-empty">没有符合条件的穿搭，试试清除关键词或切换分类。</p>
+              </div>
+            </div>
             <div class="comparison-page-grid">
             <section v-for="(outfit, index) in comparisonSlots" :key="index" class="comparison-column">
               <div class="comparison-column-head"><span class="step-number">0{{ index + 1 }}</span><div><span class="eyebrow">{{ index === 0 ? 'CURRENT LOOK' : 'COMPARE WITH' }}</span><h2>{{ index === 0 ? '当前穿搭' : '对比穿搭' }}</h2></div></div>
