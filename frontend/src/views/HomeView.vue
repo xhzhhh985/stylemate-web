@@ -294,10 +294,11 @@ function toggleLike(id: number) {
           <button class="compare-back" type="button" @click="returnFromComparison">← 返回{{ compareReturnPage === 'community' ? '穿搭广场' : compareReturnPage === 'wardrobe' ? '我的衣橱' : '上一页' }}</button>
           <div class="eyebrow">LOOK COMPARISON · 穿搭对比</div>
           <div class="page-heading"><div><h1>两套穿搭，一眼看清<span class="heading-spark">✳</span></h1><p>左侧固定当前穿搭，右侧选择另一套比较图片、标签与单品。</p></div></div>
-          <div v-if="compareBase" class="comparison-page-grid">
+          <div v-if="compareBase">
+            <div class="comparison-controls"><div class="comparison-fixed"><span>左侧固定穿搭</span><strong>{{ compareBase.title }}</strong></div><label class="comparison-select">右侧选择对比穿搭<select v-model.number="compareCandidateId"><option :value="0">请选择一套穿搭</option><option v-for="choice in compareChoices" :key="choice.id" :value="choice.id">{{ choice.title }} · {{ choice.author }}</option></select></label></div>
+            <div class="comparison-page-grid">
             <section v-for="(outfit, index) in comparisonSlots" :key="index" class="comparison-column">
               <div class="comparison-column-head"><span class="step-number">0{{ index + 1 }}</span><div><span class="eyebrow">{{ index === 0 ? 'CURRENT LOOK' : 'COMPARE WITH' }}</span><h2>{{ index === 0 ? '当前穿搭' : '对比穿搭' }}</h2></div></div>
-              <label v-if="index === 1" class="comparison-select">选择右侧穿搭<select v-model.number="compareCandidateId"><option :value="0">请选择一套穿搭</option><option v-for="choice in compareChoices" :key="choice.id" :value="choice.id">{{ choice.title }} · {{ choice.author }}</option></select></label>
               <template v-if="outfit">
                 <img v-if="outfit.imageUrl" class="comparison-photo" :src="outfit.imageUrl" :alt="outfit.title" />
                 <div v-else class="comparison-photo comparison-art"><div v-for="item in outfit.garments.slice(0, 3)" :key="item.id" :style="{ background: item.surface }"><img v-if="item.imageUrl" class="garment-photo" :src="item.imageUrl" :alt="item.name" /><GarmentArt v-else :category="item.category" :color="item.tone" compact /></div></div>
@@ -305,6 +306,7 @@ function toggleLike(id: number) {
               </template>
               <div v-else class="comparison-placeholder"><span>✦</span><h3>选择一套穿搭来对比</h3><p>右侧可以从我的穿搭与社区穿搭中选择；当前穿搭不会重复出现。</p></div>
             </section>
+            </div>
           </div>
           <div v-else class="empty-state"><h3>这套穿搭已不存在</h3><button class="primary-button" type="button" @click="returnFromComparison">返回列表</button></div>
         </template>

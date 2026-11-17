@@ -98,17 +98,21 @@ h1, h2, h3, p { margin-top: 0; } h1, h2, h3 { color: var(--ink); }
 .post-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 17px 17px; }
 .post-actions .like-button { margin: 0; }
 .compare-back { margin-bottom: 18px; padding: 0; background: none; color: var(--pine); font-size: 12px; font-weight: 700; }
-.comparison-page-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 20px; margin-top: 30px; }
+.comparison-controls, .comparison-page-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.comparison-controls { align-items: end; margin-top: 25px; }
+.comparison-page-grid { align-items: stretch; margin-top: 12px; }
+.comparison-fixed { display: grid; align-content: center; gap: 7px; min-height: 72px; padding: 10px 15px; border: 1px solid #dce6da; border-radius: 9px; background: #edf4ed; }
+.comparison-fixed span { color: #6f8c76; font-size: 11px; }.comparison-fixed strong { color: var(--pine); font-size: 13px; }
 .comparison-column { min-width: 0; min-height: 480px; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
 .comparison-column-head { display: flex; align-items: center; gap: 12px; padding: 20px 22px; }.comparison-column-head h2 { margin: 3px 0 0; font-size: 17px; }
-.comparison-select { display: grid; gap: 7px; margin: 0 22px 20px; color: #526b59; font-size: 11px; font-weight: 700; }.comparison-select select { width: 100%; min-height: 42px; padding: 8px 11px; border: 1px solid #dce6da; border-radius: 8px; background: #fff; color: var(--ink); }
+.comparison-select { display: grid; gap: 7px; min-height: 72px; color: #526b59; font-size: 11px; font-weight: 700; }.comparison-select select { width: 100%; min-height: 42px; padding: 8px 11px; border: 1px solid #dce6da; border-radius: 8px; background: #fff; color: var(--ink); }
 .comparison-photo { display: block; width: 100%; height: 290px; object-fit: contain; background: #edf2eb; }
 .comparison-art { display: flex; overflow: hidden; }.comparison-art > div { display: grid; place-items: center; flex: 1; min-width: 0; }
-.comparison-body { padding: 22px; }.comparison-body h3 { margin: 0 0 5px; font-size: 22px; }.comparison-author { color: #679076; font-size: 11px; font-weight: 700; }.comparison-description { color: #708173; font-size: 12px; line-height: 1.7; }
-.comparison-facts { margin: 20px 0; }.comparison-facts > div { display: grid; grid-template-columns: 70px 1fr; gap: 8px; padding: 10px 0; border-top: 1px solid #edf1eb; font-size: 12px; }.comparison-facts dt { color: #8a9b8b; }.comparison-facts dd { margin: 0; color: #355643; }
+.comparison-body { padding: 22px; }.comparison-body h3 { min-height: 58px; margin: 0 0 5px; font-size: 22px; line-height: 1.3; }.comparison-author { min-height: 20px; color: #679076; font-size: 11px; font-weight: 700; }.comparison-description { height: 82px; overflow-y: auto; color: #708173; font-size: 12px; line-height: 1.7; }
+.comparison-facts { margin: 20px 0; }.comparison-facts > div { display: grid; grid-template-columns: 70px 1fr; gap: 8px; min-height: 40px; padding: 10px 0; border-top: 1px solid #edf1eb; font-size: 12px; }.comparison-facts dt { color: #8a9b8b; }.comparison-facts dd { margin: 0; color: #355643; }
 .comparison-body h4 { margin: 23px 0 12px; font-size: 13px; }.comparison-garments { display: grid; gap: 9px; }.comparison-publish { margin-top: 20px; }
 .comparison-placeholder { display: grid; justify-items: center; align-content: center; min-height: 330px; padding: 30px; text-align: center; }.comparison-placeholder > span { color: #9bb8a2; font-size: 38px; }.comparison-placeholder h3 { margin: 10px 0 2px; font-size: 16px; }.comparison-placeholder p { max-width: 270px; color: #93a195; font-size: 11px; line-height: 1.7; }
 .profile-name-form { display: grid; gap: 8px; margin: 0 25px; }.profile-name-form label { color: #526b59; font-size: 11px; font-weight: 700; }.profile-name-form > div { display: flex; gap: 8px; }.profile-name-form input { min-width: 0; flex: 1; padding: 9px 11px; border: 1px solid #dce6da; border-radius: 8px; }.profile-name-form small { color: #8c9c8e; font-size: 10px; }
-@media (max-width: 620px) { .browse-toolbar { align-items: stretch; }.browse-tabs, .browse-tabs button, .browse-search { flex: 1; }.comparison-page-grid { grid-template-columns: 1fr; }.comparison-column { min-height: 0; }.profile-name-form > div { flex-wrap: wrap; } }
+@media (max-width: 620px) { .browse-toolbar { align-items: stretch; }.browse-tabs, .browse-tabs button, .browse-search { flex: 1; }.comparison-controls, .comparison-page-grid { grid-template-columns: 1fr; }.comparison-column { min-height: 0; }.profile-name-form > div { flex-wrap: wrap; } }
 @media (max-width: 620px) { .heading-actions { width: 100%; }.outfit-picker { grid-template-columns: 1fr; }.post-outfit-images { height: 180px; } }
 @media (max-width: 620px) { .match-wardrobe-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.match-garment-image { height: 120px; } }
