@@ -7,6 +7,7 @@ type Page = 'home' | 'wardrobe' | 'match' | 'community' | 'profile'
 type Category = '上衣' | '下装' | '连衣裙' | '外套' | '鞋子' | '配饰'
 type Garment = { id: number; name: string; category: Category; color: string; season: string; style: string; tone: string; surface: string; imageUrl?: string }
 type Mode = 'item' | 'text' | 'photo'
+type Outfit = { id: number; title: string; scene: string; season: string; color?: string; style?: string; description: string; imageUrl?: string; author: string; garments: Garment[]; published: boolean; demo?: boolean }
 
 const starterItems: Garment[] = [
   { id: 1, name: '薄荷绿针织上衣', category: '上衣', color: '绿', season: '春', style: '休闲', tone: '#7ba993', surface: '#e3ede5' },
@@ -26,11 +27,23 @@ function initialItems(): Garment[] {
   }
 }
 
+function initialOutfits(): Outfit[] {
+  try {
+    const saved = localStorage.getItem('stylemate-demo-outfits-v1')
+    return saved ? (JSON.parse(saved) as Outfit[]) : []
+  } catch {
+    return []
+  }
+}
+
 const page = ref<Page>('home')
 const items = ref<Garment[]>(initialItems())
+const savedOutfits = ref<Outfit[]>(initialOutfits())
 const categoryFilter = ref('全部')
 const search = ref('')
 const showAdd = ref(false)
+const showAddOutfit = ref(false)
+const activeOutfitId = ref<number | null>(null)
 const toast = ref('')
 const mode = ref<Mode>('item')
 const targetId = ref(1)
@@ -43,10 +56,15 @@ const resultVisible = ref(false)
 const matchError = ref('')
 const liked = ref<number[]>([])
 const form = ref({ name: '', category: '上衣' as Category, color: '绿', season: '春', style: '休闲', imageUrl: '' })
+const outfitForm = ref({ title: '', scene: '', season: '春', color: '绿', style: '休闲', description: '', imageUrl: '', itemIds: [] as number[], published: false })
 
 watch(items, value => {
   try { localStorage.setItem('stylemate-demo-wardrobe-v1', JSON.stringify(value)) }
   catch { notify('浏览器存储空间不足，这次修改刷新后可能丢失') }
+}, { deep: true })
+watch(savedOutfits, value => {
+  try { localStorage.setItem('stylemate-demo-outfits-v1', JSON.stringify(value)) }
+  catch { notify('浏览器存储空间不足，这套穿搭刷新后可能丢失') }
 }, { deep: true })
 
 const navigation: { id: Page; label: string; icon: string }[] = [
@@ -68,16 +86,22 @@ type Target = { category: string; color: string; season: string; name: string }
 const recommendationTarget = computed<Target | null>(() => {
   if (mode.value === 'item') return selectedItem.value ?? null
   if (mode.value === 'photo') return photoName.value ? { name: photoName.value, category: photoCategory.value, color: photoColor.value, season: photoSeason.value } : null
-  return parseTextTarget(query.value, categories.slice(1))
+  return parseTextTarget(query.value, categories.slice(1), outfits.value.flatMap(outfit => [outfit.title, outfit.scene, outfit.description, outfit.style ?? '', ...outfit.garments.flatMap(item => [item.name, item.style])]))
 })
 
 watch(query, () => { resultVisible.value = false; matchError.value = '' })
 
-const outfits = computed(() => [
-  { id: 1, title: '春日轻通勤', scene: '上班 · 春季', season: '春', itemIds: [1, 2, 4, 6] },
-  { id: 2, title: '周末漫游', scene: '出游 · 春季', season: '春', itemIds: [1, 2, 3] },
-  { id: 3, title: '清爽夏日', scene: '约会 · 夏季', season: '夏', itemIds: [5, 4, 6] },
-].map(outfit => ({ ...outfit, garments: outfit.itemIds.map(id => items.value.find(item => item.id === id)).filter((item): item is Garment => Boolean(item)) })))
+const outfits = computed<Outfit[]>(() => {
+  const presets: Outfit[] = [
+    { id: 1, title: '春日轻通勤', scene: '上班', season: '春', description: '薄荷绿与米白色的清爽组合。', author: '演示搭配', itemIds: [1, 2, 4, 6], published: true, demo: true },
+    { id: 2, title: '周末漫游', scene: '出游', season: '春', description: '牛仔外套与浅色裤装，适合轻松出行。', author: '演示搭配', itemIds: [1, 2, 3], published: true, demo: true },
+    { id: 3, title: '清爽夏日', scene: '约会', season: '夏', description: '奶油白连衣裙和森林绿托特包。', author: '演示搭配', itemIds: [5, 4, 6], published: true, demo: true },
+  ].map(({ itemIds, ...outfit }) => ({ ...outfit, garments: itemIds.map(id => items.value.find(item => item.id === id)).filter((item): item is Garment => Boolean(item)) }))
+  return [...savedOutfits.value, ...presets.filter(outfit => outfit.garments.length > 0)]
+})
+const communityOutfits = computed(() => outfits.value.filter(outfit => outfit.published))
+const activeOutfit = computed(() => outfits.value.find(outfit => outfit.id === activeOutfitId.value) ?? null)
+function seasonLabel(season: string) { return season === '四季' ? season : `${season}季` }
 const recommendedOutfits = computed(() => {
   const target = recommendationTarget.value
   if (!target) return []
@@ -106,6 +130,37 @@ function removeItem(item: Garment) {
   items.value = items.value.filter(entry => entry.id !== item.id)
   if (targetId.value === item.id) targetId.value = items.value[0]?.id ?? 0
   notify('已从演示衣橱删除')
+}
+function toggleOutfitItem(id: number) {
+  outfitForm.value.itemIds = outfitForm.value.itemIds.includes(id)
+    ? outfitForm.value.itemIds.filter(itemId => itemId !== id)
+    : [...outfitForm.value.itemIds, id]
+}
+function addOutfit() {
+  const title = outfitForm.value.title.trim()
+  if (!title) return notify('请填写穿搭名称')
+  if (outfitForm.value.itemIds.length < 2 && !outfitForm.value.imageUrl) return notify('请上传整套照片，或选择至少两件衣物')
+  const garments = outfitForm.value.itemIds.map(id => items.value.find(item => item.id === id)).filter((item): item is Garment => Boolean(item))
+  if (outfitForm.value.itemIds.length && garments.length !== outfitForm.value.itemIds.length) return notify('选择的衣物已不存在，请重新选择')
+  savedOutfits.value.unshift({ id: Date.now(), title, scene: outfitForm.value.scene.trim() || '日常', season: outfitForm.value.season, color: outfitForm.value.color, style: outfitForm.value.style, description: outfitForm.value.description.trim(), imageUrl: outfitForm.value.imageUrl, author: '演示访客', garments: garments.map(item => ({ ...item })), published: outfitForm.value.published })
+  outfitForm.value = { title: '', scene: '', season: '春', color: '绿', style: '休闲', description: '', imageUrl: '', itemIds: [], published: false }
+  showAddOutfit.value = false
+  notify('整套穿搭已保存到当前浏览器')
+}
+function chooseOutfitPhoto(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  if (!file.type.startsWith('image/')) return notify('请选择图片文件')
+  if (file.size > 1024 * 1024) return notify('演示版图片请控制在 1 MB 以内')
+  const reader = new FileReader()
+  reader.onload = () => { if (typeof reader.result === 'string') outfitForm.value.imageUrl = reader.result }
+  reader.readAsDataURL(file)
+}
+function publishOutfit(outfit: Outfit) {
+  const saved = savedOutfits.value.find(entry => entry.id === outfit.id)
+  if (!saved) return
+  saved.published = true
+  notify('已发布到本机演示社区；跨用户分享需要后端服务')
 }
 function useForMatch(item: Garment) {
   targetId.value = item.id
@@ -168,10 +223,13 @@ function toggleLike(id: number) {
         </template>
 
         <template v-else-if="page === 'wardrobe'">
-          <div class="eyebrow">MY WARDROBE · 你的私人收藏</div><div class="page-heading"><div><h1>我的衣橱<span class="heading-spark">✳</span></h1><p>把喜欢的衣服放在一起，让每一次搭配都有迹可循。</p></div><button class="primary-button" type="button" @click="showAdd = true">＋ 录入衣物</button></div>
+          <div class="eyebrow">MY WARDROBE · 你的私人收藏</div><div class="page-heading"><div><h1>我的衣橱<span class="heading-spark">✳</span></h1><p>单件衣物和整套穿搭，都可以保存在这里。</p></div><div class="heading-actions"><button class="outline-button" type="button" @click="showAddOutfit = true">＋ 录入整套穿搭</button><button class="primary-button" type="button" @click="showAdd = true">＋ 录入衣物</button></div></div>
           <div class="wardrobe-toolbar"><div class="filter-row"><button v-for="category in categories" :key="category" type="button" :class="['filter-chip', { selected: categoryFilter === category }]" @click="categoryFilter = category">{{ category }}</button></div><label class="search-box"><span>⌕</span><input v-model="search" placeholder="搜索我的衣物" aria-label="搜索我的衣物" /></label></div>
           <div v-if="filteredItems.length" class="wardrobe-grid"><article v-for="item in filteredItems" :key="item.id" class="wardrobe-card"><div class="art-surface" :style="{ background: item.surface }"><img v-if="item.imageUrl" class="garment-photo" :src="item.imageUrl" :alt="item.name" /><GarmentArt v-else :category="item.category" :color="item.tone" /><span class="image-label">{{ item.category }}</span></div><div class="wardrobe-card-body"><div><strong>{{ item.name }}</strong><button type="button" class="subtle-icon" :aria-label="`删除${item.name}`" @click="removeItem(item)">⋯</button></div><p>{{ item.color }}色 · {{ item.style }} · {{ item.season }}</p><button type="button" class="card-action" @click="useForMatch(item)">用它找搭配 <span>→</span></button></div></article></div>
           <div v-else class="empty-state"><span>▦</span><h3>这里暂时没有符合条件的衣物</h3><p>试试其他筛选，或者录入一件新衣物。</p><button class="primary-button" type="button" @click="showAdd = true">录入衣物</button></div>
+          <div class="section-heading"><div><span class="eyebrow">SAVED LOOKS</span><h2>我的整套穿搭</h2></div><button class="text-button" type="button" @click="showAddOutfit = true">新建穿搭 →</button></div>
+          <div v-if="savedOutfits.length" class="outfit-grid"><article v-for="outfit in savedOutfits" :key="outfit.id" class="outfit-card"><button class="outfit-open" type="button" @click="activeOutfitId = outfit.id"><div class="outfit-images"><img v-if="outfit.imageUrl" class="outfit-cover-photo" :src="outfit.imageUrl" :alt="outfit.title" /><template v-else><div v-for="item in outfit.garments.slice(0, 3)" :key="item.id" :style="{ background: item.surface }"><img v-if="item.imageUrl" class="garment-photo" :src="item.imageUrl" :alt="item.name" /><GarmentArt v-else :category="item.category" :color="item.tone" compact /></div></template></div><div class="outfit-body"><span>{{ outfit.scene }} · {{ seasonLabel(outfit.season) }}</span><h3>{{ outfit.title }}</h3><p>{{ outfit.garments.length ? `${outfit.garments.length} 件衣物` : '整套照片' }} · {{ outfit.published ? '本机社区可见' : '仅自己可见' }}</p><span class="outfit-link">查看整套穿搭 →</span></div></button></article></div>
+          <div v-else class="empty-state"><span>✦</span><h3>还没有自己保存的穿搭</h3><p>上传一张整套照片，或从衣橱选择至少两件衣物。</p><button class="primary-button" type="button" @click="showAddOutfit = true">录入整套穿搭</button></div>
         </template>
 
         <template v-else-if="page === 'match'">
@@ -182,12 +240,12 @@ function toggleLike(id: number) {
             <div class="match-input" v-else><label class="upload-zone"><span>↑</span><strong>{{ photoName || '选择一张商品图片' }}</strong><small>演示版仅使用下方手选标签匹配，不会分析或上传图片</small><input type="file" accept="image/*" @change="choosePhoto" /></label><div class="tag-fields"><label>品类<select v-model="photoCategory"><option v-for="category in categories.slice(1)" :key="category">{{ category }}</option></select></label><label>颜色<select v-model="photoColor"><option v-for="color in Object.keys(colorTones)" :key="color">{{ color }}</option></select></label><label>季节<select v-model="photoSeason"><option v-for="season in ['春', '夏', '秋', '冬', '四季']" :key="season">{{ season }}</option></select></label></div></div>
             <button class="primary-button match-submit" type="button" @click="runMatch">看看推荐搭配 <span>→</span></button></section>
             <aside class="match-aside"><span class="aside-star">✦</span><span class="eyebrow">HOW IT WORKS</span><h3>推荐有依据，<br />搭配更安心。</h3><p>先按品类、颜色、季节筛选，再展示符合条件的整套搭配。风格作为参考，不代替你的选择。</p><div class="rule-list"><span>01 <strong>选择目标衣物</strong></span><span>02 <strong>核对衣物标签</strong></span><span>03 <strong>查看完整搭配</strong></span></div></aside></div>
-          <section v-if="resultVisible" class="results"><div class="section-heading"><div><span class="eyebrow">MATCH RESULTS</span><h2>为你找到 {{ recommendedOutfits.length }} 套搭配</h2></div><span class="result-note">规则演示 · 非 AI 结果</span></div><p v-if="mode === 'text' && recommendationTarget && (!recommendationTarget.category || !recommendationTarget.color || !recommendationTarget.season)" class="inline-notice">描述未包含完整的品类、颜色或季节，未识别的条件不会参与筛选。试试“春季绿色上衣”。</p><div v-if="recommendedOutfits.length" class="outfit-grid"><article v-for="outfit in recommendedOutfits" :key="outfit.id" class="outfit-card"><div class="outfit-images"><div v-for="item in outfit.garments.slice(0, 3)" :key="item.id" :style="{ background: item.surface }"><GarmentArt :category="item.category" :color="item.tone" compact /></div></div><div class="outfit-body"><span>{{ outfit.scene }}</span><h3>{{ outfit.title }}</h3><p>包含 {{ outfit.garments.length }} 件真实衣橱单品</p><div class="reason">✓ 至少一件衣物满足已填写的品类、颜色、季节标签</div></div></article></div><div v-else class="empty-state"><span>✧</span><h3>还没有符合标签的搭配</h3><p>这版只展示已预设的组合；之后你可以自己创建更多搭配。</p></div></section>
+          <section v-if="resultVisible" class="results"><div class="section-heading"><div><span class="eyebrow">MATCH RESULTS</span><h2>为你找到 {{ recommendedOutfits.length }} 套搭配</h2></div><span class="result-note">规则演示 · 非 AI 结果</span></div><p v-if="mode === 'text' && recommendationTarget && (!recommendationTarget.category || !recommendationTarget.color || !recommendationTarget.season)" class="inline-notice">已按识别出的关键词模糊筛选；还可加入品类或季节缩小范围。</p><div v-if="recommendedOutfits.length" class="outfit-grid"><article v-for="outfit in recommendedOutfits" :key="outfit.id" class="outfit-card"><button class="outfit-open" type="button" @click="activeOutfitId = outfit.id"><div class="outfit-images"><img v-if="outfit.imageUrl" class="outfit-cover-photo" :src="outfit.imageUrl" :alt="outfit.title" /><template v-else><div v-for="item in outfit.garments.slice(0, 3)" :key="item.id" :style="{ background: item.surface }"><img v-if="item.imageUrl" class="garment-photo" :src="item.imageUrl" :alt="item.name" /><GarmentArt v-else :category="item.category" :color="item.tone" compact /></div></template></div><div class="outfit-body"><span>{{ outfit.scene }} · {{ seasonLabel(outfit.season) }}</span><h3>{{ outfit.title }}</h3><p>{{ outfit.garments.length ? `包含 ${outfit.garments.length} 件衣物` : '整套穿搭照片' }}</p><span class="outfit-link">查看整套穿搭 →</span></div></button></article></div><div v-else class="empty-state"><span>✧</span><h3>还没有符合标签的搭配</h3><p>可以在“我的衣橱”录入整套穿搭，再用关键词查找。</p></div></section>
         </template>
 
         <template v-else-if="page === 'community'">
-          <div class="eyebrow">STYLE COMMUNITY · 灵感来自彼此</div><div class="page-heading"><div><h1>穿搭社区<span class="heading-spark">✳</span></h1><p>看看大家如何把日常衣物，搭出自己的风格。</p></div><button class="outline-button" type="button" @click="notify('发布功能将在账号与衣橱接口完成后开放')">＋ 发布穿搭</button></div>
-          <div class="community-grid"><article v-for="post in [{ id: 1, author: '小橙', title: '把春天穿在身上', body: '薄荷绿和米白色的组合，轻松又有精神。上班和周末都能穿。', category: '上衣', tone: '#7ba993', surface: '#e2ece5', tags: ['春日通勤', '清爽配色'], count: 24 }, { id: 2, author: '林间风', title: '周末出门的轻松一套', body: '牛仔外套是我的常备单品，随手一搭也很有层次。', category: '外套', tone: '#54758b', surface: '#dce6e9', tags: ['周末穿搭', '休闲'], count: 18 }, { id: 3, author: '米粒', title: '一条裙子的夏日灵感', body: '奶油白连衣裙配一只绿色包，简单就很好看。', category: '连衣裙', tone: '#e5dfd0', surface: '#eee9dc', tags: ['夏日', '简约'], count: 31 }]" :key="post.id" class="post-card"><div class="post-art" :style="{ background: post.surface }"><GarmentArt :category="post.category" :color="post.tone" /></div><div class="post-body"><div class="post-author"><span class="author-avatar">{{ post.author[0] }}</span><div><strong>{{ post.author }}</strong><small>分享了一套穿搭</small></div></div><h2>{{ post.title }}</h2><p>{{ post.body }}</p><div class="post-tags"><span v-for="tag in post.tags" :key="tag"># {{ tag }}</span></div><button type="button" :class="['like-button', { liked: liked.includes(post.id) }]" :aria-label="liked.includes(post.id) ? '取消点赞' : '点赞'" @click="toggleLike(post.id)">{{ liked.includes(post.id) ? '♥' : '♡' }} {{ post.count + (liked.includes(post.id) ? 1 : 0) }}</button></div></article></div><p class="demo-disclaimer">社区内容与点赞为演示数据。正式版本将支持游客浏览、登录后发布和点赞。</p>
+          <div class="eyebrow">STYLE COMMUNITY · 整套穿搭</div><div class="page-heading"><div><h1>穿搭社区<span class="heading-spark">✳</span></h1><p>打开一套穿搭，可以查看整套照片和已标注衣物的信息。</p></div><button class="outline-button" type="button" @click="outfitForm.published = true; showAddOutfit = true">＋ 发布穿搭</button></div>
+          <div class="community-grid"><article v-for="outfit in communityOutfits" :key="outfit.id" class="post-card"><button class="post-open" type="button" @click="activeOutfitId = outfit.id"><div class="post-outfit-images"><img v-if="outfit.imageUrl" class="outfit-cover-photo" :src="outfit.imageUrl" :alt="outfit.title" /><template v-else><div v-for="item in outfit.garments.slice(0, 3)" :key="item.id" :style="{ background: item.surface }"><img v-if="item.imageUrl" class="garment-photo" :src="item.imageUrl" :alt="item.name" /><GarmentArt v-else :category="item.category" :color="item.tone" compact /></div></template></div><div class="post-body"><div class="post-author"><span class="author-avatar">{{ outfit.author[0] }}</span><div><strong>{{ outfit.author }}</strong><small>{{ outfit.demo ? '示例穿搭' : '本机发布' }}</small></div></div><h2>{{ outfit.title }}</h2><p>{{ outfit.description || '查看这套穿搭的全部衣物与标签。' }}</p><div class="post-tags"><span># {{ outfit.scene }}</span><span># {{ seasonLabel(outfit.season) }}</span><span># {{ outfit.garments.length ? `${outfit.garments.length}件衣物` : '整套照片' }}</span></div><span class="outfit-link">查看完整穿搭 →</span></div></button><button type="button" :class="['like-button', { liked: liked.includes(outfit.id) }]" :aria-label="liked.includes(outfit.id) ? '取消点赞' : '点赞'" @click="toggleLike(outfit.id)">{{ liked.includes(outfit.id) ? '♥' : '♡' }} {{ liked.includes(outfit.id) ? 1 : 0 }}</button></article></div><p class="demo-disclaimer">目前发布内容只保存在当前浏览器，其他用户还看不到；跨用户共享会在账号和社区后端接入后实现。</p>
         </template>
 
         <template v-else>
@@ -201,6 +259,8 @@ function toggleLike(id: number) {
     <nav class="mobile-nav" aria-label="移动端导航"><button v-for="link in navigation" :key="link.id" type="button" :class="{ active: page === link.id }" @click="navigate(link.id)"><span>{{ link.icon }}</span>{{ link.label.replace('我的', '') }}</button></nav>
 
     <div v-if="showAdd" class="modal-backdrop" @click.self="showAdd = false"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="add-title"><div class="modal-head"><div><span class="eyebrow">ADD TO WARDROBE</span><h2 id="add-title">录入一件衣物</h2></div><button class="close-button" type="button" aria-label="关闭" @click="showAdd = false">×</button></div><p class="modal-note">演示版图片保存在当前浏览器，支持 1 MB 以内的图片。</p><div class="form-grid"><label class="full">衣物名称<input v-model="form.name" placeholder="例如：浅绿色针织衫" maxlength="50" /></label><label class="full">衣物图片（可选）<input type="file" accept="image/*" @change="chooseWardrobePhoto" /></label><div v-if="form.imageUrl" class="form-photo-preview"><img :src="form.imageUrl" alt="即将录入的衣物预览" /></div><label>品类<select v-model="form.category"><option v-for="category in categories.slice(1)" :key="category">{{ category }}</option></select></label><label>颜色<select v-model="form.color"><option v-for="color in Object.keys(colorTones)" :key="color">{{ color }}</option></select></label><label>季节<select v-model="form.season"><option v-for="season in ['春', '夏', '秋', '冬', '四季']" :key="season">{{ season }}</option></select></label><label>风格<select v-model="form.style"><option v-for="style in ['休闲', '通勤', '运动', '简约', '复古', '甜美', '正式']" :key="style">{{ style }}</option></select></label></div><button class="primary-button modal-submit" type="button" @click="addItem">保存到演示衣橱 <span>→</span></button></section></div>
+    <div v-if="showAddOutfit" class="modal-backdrop" @click.self="showAddOutfit = false"><section class="modal outfit-modal" role="dialog" aria-modal="true" aria-labelledby="outfit-add-title"><div class="modal-head"><div><span class="eyebrow">CREATE A LOOK</span><h2 id="outfit-add-title">录入整套穿搭</h2></div><button class="close-button" type="button" aria-label="关闭" @click="showAddOutfit = false">×</button></div><p class="modal-note">上传整套照片，或从衣橱选择至少两件衣物。图片与信息保存在当前浏览器。</p><div class="form-grid"><label class="full">穿搭名称<input v-model="outfitForm.title" placeholder="例如：秋日通勤" maxlength="50" /></label><label class="full">整套穿搭照片（可选，1 MB 以内）<input type="file" accept="image/*" @change="chooseOutfitPhoto" /></label><div v-if="outfitForm.imageUrl" class="form-photo-preview"><img :src="outfitForm.imageUrl" alt="即将录入的整套穿搭" /></div><label>场景<input v-model="outfitForm.scene" placeholder="例如：上班" maxlength="30" /></label><label>季节<select v-model="outfitForm.season"><option v-for="season in ['春', '夏', '秋', '冬', '四季']" :key="season">{{ season }}</option></select></label><label>主色调<select v-model="outfitForm.color"><option v-for="color in Object.keys(colorTones)" :key="color">{{ color }}</option></select></label><label>风格<select v-model="outfitForm.style"><option v-for="style in ['休闲', '通勤', '运动', '简约', '复古', '甜美', '正式']" :key="style">{{ style }}</option></select></label><label class="full">搭配说明<textarea v-model="outfitForm.description" placeholder="介绍这套搭配的思路" maxlength="300"></textarea></label></div><div class="outfit-picker-label">关联衣橱单品（已选 {{ outfitForm.itemIds.length }} 件）</div><div v-if="items.length" class="outfit-picker"><label v-for="item in items" :key="item.id" class="outfit-picker-item"><input type="checkbox" :checked="outfitForm.itemIds.includes(item.id)" @change="toggleOutfitItem(item.id)" /><span class="picker-thumb" :style="{ background: item.surface }"><img v-if="item.imageUrl" class="garment-photo" :src="item.imageUrl" :alt="item.name" /><GarmentArt v-else :category="item.category" :color="item.tone" compact /></span><span><strong>{{ item.name }}</strong><small>{{ item.category }} · {{ item.color }} · {{ item.season }}</small></span></label></div><p v-else class="modal-note">衣橱为空，也可以直接上传整套穿搭照片。</p><label class="publish-choice"><input v-model="outfitForm.published" type="checkbox" /> 同时发布到本机演示社区</label><button class="primary-button modal-submit" type="button" @click="addOutfit">保存整套穿搭 <span>→</span></button></section></div>
+    <div v-if="activeOutfit" class="modal-backdrop" @click.self="activeOutfitId = null"><section class="modal outfit-modal" role="dialog" aria-modal="true" aria-labelledby="outfit-detail-title"><div class="modal-head"><div><span class="eyebrow">COMPLETE LOOK · {{ activeOutfit.author }}</span><h2 id="outfit-detail-title">{{ activeOutfit.title }}</h2></div><button class="close-button" type="button" aria-label="关闭" @click="activeOutfitId = null">×</button></div><img v-if="activeOutfit.imageUrl" class="detail-cover-photo" :src="activeOutfit.imageUrl" :alt="activeOutfit.title" /><p class="outfit-detail-intro">{{ activeOutfit.scene }} · {{ seasonLabel(activeOutfit.season) }} · {{ activeOutfit.color ? `${activeOutfit.color}色` : '' }} {{ activeOutfit.style || '' }}</p><p class="outfit-detail-intro">{{ activeOutfit.description || '这套穿搭暂无文字说明。' }}</p><h3 class="detail-section-title">{{ activeOutfit.garments.length ? `这套穿搭的 ${activeOutfit.garments.length} 件衣物` : '衣物详情' }}</h3><div v-if="activeOutfit.garments.length" class="detail-garments"><article v-for="item in activeOutfit.garments" :key="item.id" class="detail-garment"><div class="detail-garment-art" :style="{ background: item.surface }"><img v-if="item.imageUrl" class="garment-photo" :src="item.imageUrl" :alt="item.name" /><GarmentArt v-else :category="item.category" :color="item.tone" compact /></div><div><strong>{{ item.name }}</strong><p>{{ item.category }} · {{ item.color }}色 · {{ seasonLabel(item.season) }} · {{ item.style }}</p></div></article></div><p v-else class="outfit-detail-intro">发布者尚未标注单件衣物。</p><button v-if="!activeOutfit.published && !activeOutfit.demo" class="primary-button modal-submit" type="button" @click="publishOutfit(activeOutfit)">发布到本机演示社区 <span>→</span></button></section></div>
     <div v-if="toast" class="toast" role="status">{{ toast }}</div>
   </div>
 </template>
