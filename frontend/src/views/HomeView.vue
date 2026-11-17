@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import GarmentArt from '../components/GarmentArt.vue'
+import { matchesOutfit } from '../matchRules'
 
 type Page = 'home' | 'wardrobe' | 'match' | 'community' | 'profile'
 type Category = '上衣' | '下装' | '连衣裙' | '外套' | '鞋子' | '配饰'
@@ -75,18 +76,14 @@ const recommendationTarget = computed<Target | null>(() => {
 })
 
 const outfits = computed(() => [
-  { id: 1, title: '春日轻通勤', scene: '上班 · 春季', itemIds: [1, 2, 4, 6] },
-  { id: 2, title: '周末漫游', scene: '出游 · 春季', itemIds: [1, 2, 3] },
-  { id: 3, title: '清爽夏日', scene: '约会 · 夏季', itemIds: [5, 4, 6] },
+  { id: 1, title: '春日轻通勤', scene: '上班 · 春季', season: '春', itemIds: [1, 2, 4, 6] },
+  { id: 2, title: '周末漫游', scene: '出游 · 春季', season: '春', itemIds: [1, 2, 3] },
+  { id: 3, title: '清爽夏日', scene: '约会 · 夏季', season: '夏', itemIds: [5, 4, 6] },
 ].map(outfit => ({ ...outfit, garments: outfit.itemIds.map(id => items.value.find(item => item.id === id)).filter((item): item is Garment => Boolean(item)) })))
 const recommendedOutfits = computed(() => {
   const target = recommendationTarget.value
   if (!target) return []
-  return outfits.value.filter(outfit => outfit.garments.some(item =>
-    (!target.category || item.category === target.category) &&
-    (!target.color || item.color === target.color) &&
-    (!target.season || item.season === target.season || item.season === '四季'),
-  ))
+  return outfits.value.filter(outfit => matchesOutfit(target, outfit))
 })
 
 function notify(message: string) {
