@@ -89,3 +89,36 @@ export function recommendFromWardrobe<T extends WardrobeItem>(
 
   return [...found.values()].sort((a, b) => b.score - a.score).slice(0, limit)
 }
+
+/** A selected set must fit the one-piece or top-and-bottom outfit structure. */
+export function wardrobeSelectionIssue<T extends WardrobeItem>(items: readonly T[], selectedIds: readonly number[]): string | null {
+  if (!selectedIds.length) return '请先从衣橱选择衣物。'
+  const selected = [...new Set(selectedIds)].map(id => items.find(item => item.id === id))
+  if (selected.some(item => !item)) return '选择的衣物已不在衣橱中，请重新选择。'
+  const garments = selected as T[]
+  const seasons = new Set(garments.map(item => item.season).filter(season => season !== '四季'))
+  if (seasons.size > 1) return '所选衣物的季节不一致，请调整后再推荐。'
+  if (garments.some(item => item.category === '连衣裙') && garments.some(item => ['上衣', '下装'].includes(item.category))) {
+    return '连衣裙不能与上衣或下装同时作为这一套的基础衣物。'
+  }
+  const categories = new Set<string>()
+  for (const item of garments) {
+    if (categories.has(item.category)) return `同一套暂不支持选择多件${item.category}，请保留一件。`
+    categories.add(item.category)
+  }
+  return null
+}
+
+/** Keep every selected item in every result; never substitute another wardrobe item for it. */
+export function recommendFromWardrobeSelection<T extends WardrobeItem>(
+  items: readonly T[], selectedIds: readonly number[], limit = 8,
+): WardrobeLook<T>[] {
+  if (wardrobeSelectionIssue(items, selectedIds)) return []
+  const required = [...new Set(selectedIds)].map(id => items.find(item => item.id === id)!)
+  const requiredSet = new Set(required.map(item => item.id))
+  const ordered = [...required, ...items.filter(item => !requiredSet.has(item.id))]
+  const anchor = required[0]!
+  return recommendFromWardrobe(ordered, anchor, anchor.id, Number.POSITIVE_INFINITY)
+    .filter(look => required.every(item => look.garments.some(garment => garment.id === item.id)))
+    .slice(0, limit)
+}

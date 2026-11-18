@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { recommendFromWardrobe } from '../src/wardrobeRecommendations.ts'
+import { recommendFromWardrobe, recommendFromWardrobeSelection, wardrobeSelectionIssue } from '../src/wardrobeRecommendations.ts'
 
 const wardrobe = [
   { id: 1, name: '绿色上衣', category: '上衣', color: '绿', season: '秋', style: '通勤' },
@@ -24,4 +24,18 @@ test('连衣裙不会与上衣或裤子组合，只有春季衣物不会匹配�
   assert.ok(looks.length > 0)
   assert.ok(looks.every(look => look.garments.every(item => !['上衣', '下装'].includes(item.category))))
   assert.deepEqual(recommendFromWardrobe(wardrobe, { category: '连衣裙', color: '绿', season: '秋' }), [])
+})
+
+test('多选上衣、下装和鞋子时，每套都包含全部选中衣物', () => {
+  const looks = recommendFromWardrobeSelection(wardrobe, [1, 2, 3])
+  assert.ok(looks.length > 0)
+  assert.ok(looks.every(look => [1, 2, 3].every(id => look.garments.some(item => item.id === id))))
+  assert.ok(looks.every(look => look.garments.every(item => wardrobe.some(saved => saved.id === item.id))))
+})
+
+test('季节冲突和基础衣物冲突时说明原因且不生成结果', () => {
+  assert.match(wardrobeSelectionIssue(wardrobe, [1, 4]), /连衣裙|季节/)
+  assert.match(wardrobeSelectionIssue(wardrobe, [1, 5]), /连衣裙/)
+  assert.deepEqual(recommendFromWardrobeSelection(wardrobe, [1, 4]), [])
+  assert.deepEqual(recommendFromWardrobeSelection(wardrobe, [1, 5]), [])
 })
