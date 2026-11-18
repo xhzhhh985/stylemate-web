@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app import community as community_module
+from app import images as image_module
 from app.database import Base, get_db
 from app.main import app
 
@@ -18,8 +18,8 @@ class CommunityApiTest(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         root = Path(self.directory.name)
-        self.previous_upload_dir = community_module.upload_dir
-        community_module.upload_dir = root / "uploads"
+        self.previous_upload_dir = image_module.upload_dir
+        image_module.upload_dir = root / "uploads"
         self.engine = create_engine(f"sqlite:///{(root / 'community.db').as_posix()}", connect_args={"check_same_thread": False})
         Base.metadata.create_all(self.engine)
         session_factory = sessionmaker(bind=self.engine)
@@ -36,7 +36,7 @@ class CommunityApiTest(unittest.TestCase):
         self.author.close()
         self.reader.close()
         app.dependency_overrides.clear()
-        community_module.upload_dir = self.previous_upload_dir
+        image_module.upload_dir = self.previous_upload_dir
         self.engine.dispose()
         self.directory.cleanup()
 
@@ -51,6 +51,7 @@ class CommunityApiTest(unittest.TestCase):
         created = self.author.post("/api/v1/community/outfits", json=outfit)
         self.assertEqual(created.status_code, 201)
         self.assertEqual(created.json()["author"], "小林")
+        self.assertIsNone(created.json()["authorAvatarUrl"])
         self.assertEqual(created.json()["ownerId"], first.json()["id"])
         self.assertTrue(created.json()["imageUrl"].startswith("/api/v1/community/images/"))
 
@@ -62,6 +63,10 @@ class CommunityApiTest(unittest.TestCase):
         self.assertEqual(listed.json()[0]["title"], "秋日绿色通勤")
         self.assertEqual(listed.json()[0]["author"], "小林")
         self.assertEqual(self.reader.get(listed.json()[0]["imageUrl"]).status_code, 200)
+
+        avatar = self.author.put("/api/v1/auth/me/avatar", json={"imageUrl": PNG_ONE_PIXEL})
+        self.assertEqual(avatar.status_code, 200)
+        self.assertEqual(self.reader.get("/api/v1/community/outfits").json()[0]["authorAvatarUrl"], avatar.json()["avatarUrl"])
 
         self.author.patch("/api/v1/auth/me", json={"nickname": "小林同学"})
         self.assertEqual(self.reader.get("/api/v1/community/outfits").json()[0]["author"], "小林同学")

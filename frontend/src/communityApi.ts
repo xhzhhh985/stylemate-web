@@ -14,6 +14,7 @@ export type CommunityPost = {
   id: number
   ownerId: number
   author: string
+  authorAvatarUrl: string | null
   title: string
   scene: string
   season: string

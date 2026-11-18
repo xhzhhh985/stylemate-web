@@ -1,6 +1,7 @@
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import jwt
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
@@ -12,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.images import delete_image, store_image
 from app.models import User, UserProfile
 
 
@@ -57,10 +59,15 @@ class NicknameRequest(BaseModel):
         return value
 
 
+class AvatarRequest(BaseModel):
+    imageUrl: str = Field(min_length=1, max_length=1_500_000)
+
+
 class PublicUser(BaseModel):
     id: int
     username: str
     nickname: str
+    avatarUrl: str | None
     created_at: datetime
 
 
@@ -69,6 +76,7 @@ def public_user(user: User) -> PublicUser:
         id=user.id,
         username=user.username,
         nickname=user.profile.nickname,
+        avatarUrl=user.profile.avatar_url,
         created_at=user.created_at,
     )
 
@@ -144,6 +152,33 @@ def update_me(body: NicknameRequest, db: Session = Depends(get_db), user: User =
     user.profile.nickname = body.nickname
     db.commit()
     db.refresh(user)
+    return public_user(user)
+
+
+@router.put("/me/avatar", response_model=PublicUser)
+def update_avatar(body: AvatarRequest, db: Session = Depends(get_db), user: User = Depends(current_user)) -> PublicUser:
+    created_files: list[Path] = []
+    old_url = user.profile.avatar_url
+    try:
+        user.profile.avatar_url = store_image(body.imageUrl, created_files)
+        db.commit()
+        db.refresh(user)
+    except Exception:
+        db.rollback()
+        for path in created_files:
+            path.unlink(missing_ok=True)
+        raise
+    delete_image(old_url)
+    return public_user(user)
+
+
+@router.delete("/me/avatar", response_model=PublicUser)
+def remove_avatar(db: Session = Depends(get_db), user: User = Depends(current_user)) -> PublicUser:
+    old_url = user.profile.avatar_url
+    user.profile.avatar_url = None
+    db.commit()
+    db.refresh(user)
+    delete_image(old_url)
     return public_user(user)
 
 

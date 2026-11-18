@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import GarmentArt from '../components/GarmentArt.vue'
 import { matchesOutfit, parseTextTarget } from '../matchRules'
 import { comparisonCandidates, filterComparisonCandidates, publishedOutfits, searchOutfits } from '../outfitBrowse'
-import { AuthApiError, getMe, login, logout, register, updateNickname, type AuthUser } from '../authApi'
+import { AuthApiError, getMe, login, logout, register, removeAvatar, updateNickname, uploadAvatar, type AuthUser } from '../authApi'
 import { createCommunityPost, listCommunityPosts, type CommunityPost } from '../communityApi'
 import { recommendFromWardrobe, recommendFromWardrobeSelection, wardrobeSelectionIssue } from '../wardrobeRecommendations'
 import { demoItems, demoOutfits } from '../demoData'
@@ -13,7 +13,7 @@ type Page = 'home' | 'wardrobe' | 'match' | 'community' | 'profile' | 'compare'
 type Category = '上衣' | '下装' | '连衣裙' | '外套' | '鞋子' | '配饰'
 type Garment = { id: number; name: string; category: Category; color: string; season: string; style: string; tone: string; surface: string; imageUrl?: string }
 type Mode = 'item' | 'text' | 'photo'
-type Outfit = { id: number; title: string; scene: string; season: string; color?: string; style?: string; description: string; imageUrl?: string; author: string; garments: Garment[]; published: boolean; demo?: boolean; generated?: boolean; serverId?: number; ownerId?: number }
+type Outfit = { id: number; title: string; scene: string; season: string; color?: string; style?: string; description: string; imageUrl?: string; author: string; authorAvatarUrl?: string | null; garments: Garment[]; published: boolean; demo?: boolean; generated?: boolean; serverId?: number; ownerId?: number }
 
 function outfitsKey(scope: string): string { return scope === 'guest' ? 'stylemate-demo-outfits-v1' : `stylemate-demo-outfits-v1:${scope}` }
 
@@ -44,6 +44,7 @@ const authOffline = ref(false)
 const showAuth = ref(false)
 const authMode = ref<'login' | 'register'>('login')
 const authPending = ref(false)
+const avatarPending = ref(false)
 const authError = ref('')
 const authForm = ref({ username: '', password: '', nickname: '', confirmPassword: '' })
 const items = ref<Garment[]>(initialItems())
@@ -257,6 +258,9 @@ const myOutfits = computed(() => [
 ])
 const communityOutfits = computed(() => publishedOutfits([...remoteOutfits.value, ...outfits.value.filter(outfit => outfit.demo)]))
 const browsedOutfits = computed(() => searchOutfits(browseTab.value === 'mine' ? myOutfits.value : communityOutfits.value, communitySearch.value))
+function authorAvatar(outfit: Outfit): string | null {
+  return outfit.authorAvatarUrl || (browseTab.value === 'mine' ? authUser.value?.avatarUrl ?? null : null)
+}
 const compareBase = computed(() => displayOutfits.value.find(outfit => outfit.id === compareBaseId.value) ?? null)
 const compareCandidate = computed(() => displayOutfits.value.find(outfit => outfit.id === compareCandidateId.value) ?? null)
 const customItems = computed(() => customItemIds.value.map(id => items.value.find(item => item.id === id)).filter((item): item is Garment => Boolean(item)))
@@ -433,6 +437,40 @@ function choosePhoto(event: Event) {
   const input = event.target as HTMLInputElement
   photoName.value = input.files?.[0]?.name ?? ''
 }
+async function chooseAvatar(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || avatarPending.value) return
+  if (!authUser.value) return openAuth('login')
+  if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) return notify('请选择 PNG、JPEG、WebP 或 GIF 图片')
+  if (file.size > 1024 * 1024) return notify('头像图片请控制在 1 MB 以内')
+  avatarPending.value = true
+  try {
+    const imageUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('图片读取失败'))
+      reader.onerror = () => reject(new Error('图片读取失败'))
+      reader.readAsDataURL(file)
+    })
+    authUser.value = await uploadAvatar(imageUrl)
+    await refreshCommunity()
+    notify('头像已保存到账号')
+  } catch (error) {
+    notify(error instanceof Error ? error.message : '头像上传失败，请检查后端服务')
+  } finally { avatarPending.value = false }
+}
+async function clearAvatar() {
+  if (!authUser.value || avatarPending.value) return
+  avatarPending.value = true
+  try {
+    authUser.value = await removeAvatar()
+    await refreshCommunity()
+    notify('头像已移除')
+  } catch (error) {
+    notify(error instanceof Error ? error.message : '移除头像失败，请检查后端服务')
+  } finally { avatarPending.value = false }
+}
 function chooseWardrobePhoto(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0]
   if (!file) return
@@ -460,7 +498,7 @@ function toggleLike(id: number) {
     </aside>
 
     <div class="main-column">
-      <header class="topbar"><div class="shell-inner"><div class="mobile-brand">StyleMate <span>衣搭智选</span></div><div class="breadcrumb">我的空间 <span>/</span> {{ page === 'compare' ? '穿搭对比' : navigation.find(link => link.id === page)?.label }}</div><div class="top-actions"><span class="demo-pill"><span></span> {{ authOffline ? '后端未连接' : '演示版本' }}</span><button v-if="!authUser" class="auth-top-button" type="button" @click="openAuth('login')">{{ authLoading ? '检查账号…' : '登录 / 注册' }}</button><span v-else class="auth-top-name">{{ authUser.username }}</span><button class="avatar" type="button" aria-label="查看我的资料" @click="navigate('profile')">{{ displayName[0] }}</button></div></div></header>
+      <header class="topbar"><div class="shell-inner"><div class="mobile-brand">StyleMate <span>衣搭智选</span></div><div class="breadcrumb">我的空间 <span>/</span> {{ page === 'compare' ? '穿搭对比' : navigation.find(link => link.id === page)?.label }}</div><div class="top-actions"><span class="demo-pill"><span></span> {{ authOffline ? '后端未连接' : '演示版本' }}</span><button v-if="!authUser" class="auth-top-button" type="button" @click="openAuth('login')">{{ authLoading ? '检查账号…' : '登录 / 注册' }}</button><span v-else class="auth-top-name">{{ authUser.username }}</span><button class="avatar" type="button" aria-label="查看我的资料" @click="navigate('profile')"><img v-if="authUser?.avatarUrl" :src="authUser.avatarUrl" alt="" /><span v-else>{{ displayName[0] }}</span></button></div></div></header>
 
       <main class="content">
         <template v-if="page === 'home'">
@@ -500,7 +538,7 @@ function toggleLike(id: number) {
           <div class="browse-toolbar"><div class="browse-tabs" role="tablist" aria-label="穿搭分类"><button type="button" role="tab" :aria-selected="browseTab === 'mine'" :class="{ active: browseTab === 'mine' }" @click="browseTab = 'mine'">我的穿搭 <span>{{ myOutfits.length }}</span></button><button type="button" role="tab" :aria-selected="browseTab === 'community'" :class="{ active: browseTab === 'community' }" @click="browseTab = 'community'">社区穿搭 <span>{{ communityOutfits.length }}</span></button></div><label class="search-box browse-search"><span>⌕</span><input v-model="communitySearch" :placeholder="browseTab === 'mine' ? '搜索我的穿搭' : '搜索社区穿搭，如：绿、通勤'" aria-label="搜索穿搭关键词" /></label></div>
           <p v-if="communityError" class="inline-notice" role="alert">{{ communityError }} <button type="button" @click="refreshCommunity">重试</button></p>
           <p class="browse-help">关键词可匹配名称、颜色、场景、季节、风格、说明和衣物信息。点进任意穿搭即可进入左右对比界面。</p>
-          <div v-if="browsedOutfits.length" class="community-grid"><article v-for="outfit in browsedOutfits" :key="outfit.id" class="post-card"><button class="post-open" type="button" @click="openComparison(outfit)"><div class="post-outfit-images"><img v-if="outfit.imageUrl" class="outfit-cover-photo" :src="outfit.imageUrl" :alt="outfit.title" /><template v-else><div v-for="item in outfit.garments.slice(0, 3)" :key="item.id" :style="{ background: item.surface }"><img v-if="item.imageUrl" class="garment-photo" :src="item.imageUrl" :alt="item.name" /><GarmentArt v-else :category="item.category" :color="item.tone" compact /></div></template></div><div class="post-body"><div class="post-author"><span class="author-avatar">{{ outfit.author[0] }}</span><div><strong>{{ outfit.author }}</strong><small>{{ outfit.demo ? '示例用户' : outfit.serverId ? '社区发布' : '仅自己可见' }}</small></div></div><h2>{{ outfit.title }}</h2><p>{{ outfit.description || '打开查看整套穿搭与衣物标签。' }}</p><div class="post-tags"><span># {{ outfit.scene }}</span><span># {{ seasonLabel(outfit.season) }}</span><span># {{ outfit.color || '未标主色' }}</span></div><span class="outfit-link">查看完整穿搭 →</span></div></button><div class="post-actions"><button v-if="browseTab === 'community'" type="button" :class="['like-button', { liked: liked.includes(outfit.id) }]" :aria-label="liked.includes(outfit.id) ? '取消点赞' : '点赞'" @click="toggleLike(outfit.id)">{{ liked.includes(outfit.id) ? '♥' : '♡' }} {{ liked.includes(outfit.id) ? 1 : 0 }}</button></div></article></div>
+          <div v-if="browsedOutfits.length" class="community-grid"><article v-for="outfit in browsedOutfits" :key="outfit.id" class="post-card"><button class="post-open" type="button" @click="openComparison(outfit)"><div class="post-outfit-images"><img v-if="outfit.imageUrl" class="outfit-cover-photo" :src="outfit.imageUrl" :alt="outfit.title" /><template v-else><div v-for="item in outfit.garments.slice(0, 3)" :key="item.id" :style="{ background: item.surface }"><img v-if="item.imageUrl" class="garment-photo" :src="item.imageUrl" :alt="item.name" /><GarmentArt v-else :category="item.category" :color="item.tone" compact /></div></template></div><div class="post-body"><div class="post-author"><span class="author-avatar"><img v-if="authorAvatar(outfit)" :src="authorAvatar(outfit) ?? undefined" :alt="`${outfit.author}的头像`" /><span v-else>{{ outfit.author[0] }}</span></span><div><strong>{{ outfit.author }}</strong><small>{{ outfit.demo ? '示例用户' : outfit.serverId ? '社区发布' : '仅自己可见' }}</small></div></div><h2>{{ outfit.title }}</h2><p>{{ outfit.description || '打开查看整套穿搭与衣物标签。' }}</p><div class="post-tags"><span># {{ outfit.scene }}</span><span># {{ seasonLabel(outfit.season) }}</span><span># {{ outfit.color || '未标主色' }}</span></div><span class="outfit-link">查看完整穿搭 →</span></div></button><div class="post-actions"><button v-if="browseTab === 'community'" type="button" :class="['like-button', { liked: liked.includes(outfit.id) }]" :aria-label="liked.includes(outfit.id) ? '取消点赞' : '点赞'" @click="toggleLike(outfit.id)">{{ liked.includes(outfit.id) ? '♥' : '♡' }} {{ liked.includes(outfit.id) ? 1 : 0 }}</button></div></article></div>
           <div v-else class="empty-state"><span>⌕</span><h3>没有找到相关穿搭</h3><p>{{ communitySearch.trim() ? '试试颜色、季节或场景的其他关键词。' : browseTab === 'mine' ? '先录入一套自己的穿搭。' : '社区暂无穿搭。' }}</p></div>
           <p class="demo-disclaimer">社区穿搭包含示例内容及用户发布的穿搭。同一后端服务的其他账号可以看到已发布内容；私人穿搭只保存在当前浏览器。</p>
         </template>
@@ -550,7 +588,18 @@ function toggleLike(id: number) {
 
         <template v-else>
           <div class="eyebrow">MY PROFILE · 只属于你的空间</div><div class="page-heading"><div><h1>我的资料<span class="heading-spark">✳</span></h1><p>了解你的喜好，为日常穿搭留下更多灵感。</p></div></div>
-          <div class="profile-layout"><section class="profile-card"><div class="profile-cover"><span>个人空间</span></div><div class="profile-identity"><div class="profile-avatar">{{ displayName[0] }}</div><div><h2>{{ displayName }}</h2><p>{{ authUser ? `账号 @${authUser.username}` : '游客演示' }}</p></div><span class="private-badge">私人空间</span></div><div class="profile-details"><div v-if="authUser"><span>用户名</span><strong>{{ authUser.username }}</strong></div><div><span>昵称</span><strong>{{ displayName }}</strong></div><div><span>偏好风格</span><strong>休闲 · 通勤 · 简约</strong></div><div><span>身高 / 体重</span><strong>仅本人可见</strong></div></div><form class="profile-name-form" @submit.prevent="saveDisplayName"><label for="display-name">设置社区显示昵称</label><div><input id="display-name" v-model="nameDraft" maxlength="30" placeholder="输入昵称" /><button class="outline-button" type="submit">保存昵称</button></div><small>{{ authUser ? '账号昵称保存在后端数据库' : '游客昵称只保存在当前浏览器' }}</small></form><button v-if="authUser" class="outline-button profile-logout" type="button" @click="signOut">退出登录</button><button v-else class="outline-button profile-logout" type="button" @click="openAuth('login')">登录 / 注册</button></section><aside class="privacy-card"><span>关于隐私</span><h3>你的资料，<br />由你决定分享多少。</h3><p>账号可以注册和登录；私人衣橱保存在当前浏览器，公开发布的穿搭保存在后端，其他账号可见。</p><div class="privacy-line"><span>✓</span> 社区显示昵称</div><div class="privacy-line"><span>✓</span> 私人穿搭不会出现在社区标签</div></aside></div>
+          <div class="profile-layout">
+            <section class="profile-card">
+              <div class="profile-cover"><span>个人空间</span></div>
+              <div class="profile-identity"><div class="profile-avatar"><img v-if="authUser?.avatarUrl" :src="authUser.avatarUrl" :alt="`${displayName}的头像`" /><span v-else>{{ displayName[0] }}</span></div><div><h2>{{ displayName }}</h2><p>{{ authUser ? `账号 @${authUser.username}` : '游客演示' }}</p></div><span class="private-badge">私人空间</span></div>
+              <div v-if="authUser" class="profile-avatar-actions"><label class="outline-button avatar-upload" :class="{ disabled: avatarPending }"><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" :disabled="avatarPending" @change="chooseAvatar" />{{ avatarPending ? '处理中…' : authUser.avatarUrl ? '更换头像' : '上传头像' }}</label><button v-if="authUser.avatarUrl" class="outline-button" type="button" :disabled="avatarPending" @click="clearAvatar">移除头像</button><small>PNG、JPEG、WebP 或 GIF，1 MB 以内。头像会显示在社区作者旁。</small></div>
+              <p v-else class="profile-avatar-hint">登录后可以上传自己的头像。</p>
+              <div class="profile-details"><div v-if="authUser"><span>用户名</span><strong>{{ authUser.username }}</strong></div><div><span>昵称</span><strong>{{ displayName }}</strong></div><div><span>偏好风格</span><strong>休闲 · 通勤 · 简约</strong></div><div><span>身高 / 体重</span><strong>仅本人可见</strong></div></div>
+              <form class="profile-name-form" @submit.prevent="saveDisplayName"><label for="display-name">设置社区显示昵称</label><div><input id="display-name" v-model="nameDraft" maxlength="30" placeholder="输入昵称" /><button class="outline-button" type="submit">保存昵称</button></div><small>{{ authUser ? '账号昵称保存在后端数据库' : '游客昵称只保存在当前浏览器' }}</small></form>
+              <button v-if="authUser" class="outline-button profile-logout" type="button" @click="signOut">退出登录</button><button v-else class="outline-button profile-logout" type="button" @click="openAuth('login')">登录 / 注册</button>
+            </section>
+            <aside class="privacy-card"><span>关于隐私</span><h3>你的资料，<br />由你决定分享多少。</h3><p>账号可以注册和登录；私人衣橱保存在当前浏览器，公开发布的穿搭保存在后端，其他账号可见。</p><div class="privacy-line"><span>✓</span> 社区显示昵称</div><div class="privacy-line"><span>✓</span> 私人穿搭不会出现在社区标签</div></aside>
+          </div>
         </template>
       </main>
       <footer class="site-footer"><div class="shell-inner"><span>© StyleMate 衣搭智选 · 页面体验 Demo</span><span>用你的衣橱，搭出自己的故事</span></div></footer>
