@@ -55,8 +55,19 @@ export const demoOutfits = [
   { id: 13, title: '冬季黑白通勤', scene: '上班', season: '冬', color: '黑', style: '正式', description: '黑白基础款搭配黑靴与手提包。', author: '阿简（示例）', itemIds: [25, 26, 27, 32] },
 ]
 
-/** Existing users keep their edits and only receive the new sample IDs once. */
+/** Older guest demos receive new sample IDs once without restoring deleted old items. */
 export function addNewDemoItems<T extends { id: number }>(saved: readonly T[], samples: readonly T[]): T[] {
   const existingIds = new Set(saved.map(item => item.id))
   return [...saved, ...samples.filter(item => item.id > 6 && !existingIds.has(item.id))]
+}
+
+/** Remove untouched sample items from an account while retaining edited and personal items. */
+export function removeUnchangedDemoItems(saved: readonly DemoGarment[], samples: readonly DemoGarment[]): DemoGarment[] {
+  const byId = new Map(samples.map(item => [item.id, item]))
+  return saved.filter(item => {
+    const sample = byId.get(item.id)
+    if (!sample) return true
+    const keys = new Set([...Object.keys(sample), ...Object.keys(item)])
+    return [...keys].some(key => item[key as keyof DemoGarment] !== sample[key as keyof DemoGarment])
+  })
 }
